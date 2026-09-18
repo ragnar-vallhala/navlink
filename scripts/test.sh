@@ -1,21 +1,15 @@
 #!/usr/bin/env sh
 # Run the NavLink test suite.
 #
-#   scripts/test.sh            the full 7-step pipeline (tests/run_tests.py):
-#                              regenerate, Python codec tests, compile + run the
-#                              C test, C<->Python parity, and both loopbacks
-#   scripts/test.sh <name>     one standalone test, e.g. test_xfer_loopback.py
+#   scripts/test.sh            everything, via ctest
+#   scripts/test.sh -R <regex> passed through to ctest, e.g. -R test_codec
 #
-# No third-party dependencies -- python3 and a C compiler, nothing else. That is
-# a deliberate property of this repo: it is the wire contract three codebases
-# generate from, so its tests must run anywhere without a package install.
+# Configures the build dir on first use. The codec is generated as a build step
+# and the Python tests take it from a ctest fixture, so a clean tree needs no
+# special ordering.
 set -eu
 cd "$(dirname "$0")/.."
 
-# The standalone tests read generated/, which is not tracked. run_tests.py
-# regenerates as its step 1; a single test has to be given the same footing.
-if [ $# -gt 0 ]; then
-  python3 generate.py >/dev/null
-  exec python3 "tests/$1"
-fi
-exec python3 tests/run_tests.py
+[ -f build/CMakeCache.txt ] || cmake -S . -B build >/dev/null
+cmake --build build -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)" >/dev/null
+exec ctest --test-dir build --output-on-failure "$@"

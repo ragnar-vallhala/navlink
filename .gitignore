@@ -4,3 +4,5 @@ tests/_test_c.bin
 
 # vtest binary (scripts/vtest.sh rebuilds it on demand)
 build/
+CMakeCache.txt
+CMakeFiles/
