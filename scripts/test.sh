@@ -12,7 +12,10 @@
 set -eu
 cd "$(dirname "$0")/.."
 
+# The standalone tests read generated/, which is not tracked. run_tests.py
+# regenerates as its step 1; a single test has to be given the same footing.
 if [ $# -gt 0 ]; then
+  python3 generate.py >/dev/null
   exec python3 "tests/$1"
 fi
 exec python3 tests/run_tests.py

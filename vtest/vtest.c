@@ -68,6 +68,7 @@ typedef struct {
   const char
       *filter; /* ctest: -R <regex> (NULL=all);  pytest: subdir ("tests") */
   const char *tprefix; /* ctest: test name -> build target = tprefix + name */
+  const char *build;   /* script: prerequisite command, run before the cases */
   tcase_t *cases;
   int ncases;
   int expanded;
@@ -80,14 +81,17 @@ typedef struct {
  *   pytest — test_dir is the rootdir; filter is the subdir to collect/run. */
 static comp_t comps[] = {
     /* Every standalone tests/test_*.py, one case each: they print PASS/FAIL and
-     * exit non-zero, so the script adapter needs no per-test knowledge. */
+     * exit non-zero, so the script adapter needs no per-test knowledge.
+     * They read generated/, so generation is the build step -- without it a
+     * clean tree fails every case for a reason that has nothing to do with the
+     * test. */
     {"codec", "script", AD_SCRIPT, ".",
      "ls tests/test_*.py 2>/dev/null | xargs -r -n1 basename", "python3 tests/",
-     NULL, 0, 1, ""},
+     "python3 generate.py", NULL, 0, 1, ""},
     /* The full 7-step pipeline: regenerate, C compile, and the C<->Python
      * parity checks that no single script covers on its own. */
     {"pipeline", "script", AD_SCRIPT, ".", "echo run_tests.py", "python3 tests/",
-     NULL, 0, 0, ""},
+     NULL, NULL, 0, 0, ""},
 };
 static const int NCOMPS = (int)(sizeof comps / sizeof comps[0]);
 
@@ -598,7 +602,8 @@ static const char *log_line(int a) {
  * in-process SITL binary its integration tests drive. */
 static const char *build_cmd(char *buf, size_t n, comp_t *c, const char *only) {
   if (c->adapter == AD_SCRIPT)
-    snprintf(buf, n, "true"); /* nothing to build: the tests are the sources */
+    snprintf(buf, n, "cd '%s' && %s", c->test_dir,
+             c->build ? c->build : "true");
   else if (c->adapter == AD_PYTEST)
     snprintf(buf, n,
              "cmake --build build_sitl_rtos --target vayu_sitl_rtos 2>&1");

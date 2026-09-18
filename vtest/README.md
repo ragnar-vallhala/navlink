@@ -29,8 +29,10 @@ Three, selected per component in the `comps[]` table at the top of `vtest.c`:
 - **ctest** — discover with `ctest -N`, run with `--output-on-failure`.
 - **pytest** — discover with `--collect-only -q`, run with `-v`.
 - **script** — standalone executables that print PASS/FAIL and exit non-zero.
-  `filter` is a shell command listing one case name per line; `tprefix` is what
-  each name is appended to. The run wraps each case to emit `<name> PASSED` /
+  `filter` is a shell command listing one case name per line, `tprefix` is what
+  each name is appended to, and `build` is an optional prerequisite command run
+  before the cases (here: regenerating the codec, without which a clean tree
+  fails every case for a reason unrelated to the test). The run wraps each case to emit `<name> PASSED` /
   `<name> FAILED`, which is the shape `pytest -v` produces — so it reuses that
   parser rather than adding a second one to keep in step.
 
