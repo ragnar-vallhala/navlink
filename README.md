@@ -108,3 +108,11 @@ See `sim/README.md` for scenarios and knobs.
   firmware observability (`PERF_*`, `EST_PERF`), calibration, command, and
   parameter services. Mission and file-transfer services are specified in the
   doc but not yet authored here.
+
+## License
+
+Apache License 2.0 — see [LICENSE.md](LICENSE.md). Copyright (C) 2026 NAVRobotec
+Pvt Ltd.
+
+The dialect and the generator are the contract; the codec each consumer builds
+from them is theirs.
