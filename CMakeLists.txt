@@ -26,6 +26,8 @@ add_custom_command(
   VERBATIM)
 add_custom_target(navlink_codec DEPENDS ${GEN_C}/navlink_msgs.c)
 
+option(NAVLINK_SANITIZE "Build the C test with ASan + UBSan" OFF)
+
 enable_testing()
 
 # --- the C side: compiled against the generated codec, as a consumer would ---
@@ -34,6 +36,13 @@ target_include_directories(test_c PRIVATE ${GEN_C})
 # -UNDEBUG: every check in test_c.c is an assert(), so a build type that defines
 # NDEBUG would compile the entire test away into a no-op that still passes.
 target_compile_options(test_c PRIVATE -std=c11 -Wall -Wextra -Werror -UNDEBUG)
+# The generated codec does the pointer arithmetic that packs and unpacks every
+# message, so it is the part worth running under a sanitizer.
+if(NAVLINK_SANITIZE)
+  target_compile_options(test_c PRIVATE -fsanitize=address,undefined
+                                        -fno-omit-frame-pointer)
+  target_link_options(test_c PRIVATE -fsanitize=address,undefined)
+endif()
 add_test(NAME test_c COMMAND test_c)
 
 # --- the Python side ---

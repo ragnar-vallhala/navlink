@@ -6,3 +6,4 @@ tests/_test_c.bin
 build/
 CMakeCache.txt
 CMakeFiles/
+build_san/
