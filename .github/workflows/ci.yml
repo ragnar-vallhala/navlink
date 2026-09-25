@@ -1,0 +1,73 @@
+# NavLink CI.
+#
+# This repo is a code generator: four other repos compile against what it
+# emits, and none of them would notice a wire-layout change until their own
+# build broke. So the gate is the generator's own suite, which already checks
+# the things that matter -- that generate.py is deterministic, that the CRC-16
+# self-check reproduces, and that the C and Python codecs agree with each other
+# over a loopback.
+#
+#   - suite       : cmake + ctest, the whole of scripts/test.sh
+#   - commit-msgs : no AI attribution trailers, as elsewhere in this stack
+#
+# `generated/` is build output and is not tracked, so there is no drift check
+# to run: the `generate` test in the suite covers determinism directly.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  suite:
+    name: test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: scripts/test.sh
+        run: scripts/test.sh
+
+  commit-msgs:
+    name: commit message gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0          # need history to diff against the base
+      - name: No AI attribution trailers
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -eu
+          ZERO=0000000000000000000000000000000000000000
+          if [ "$EVENT" = pull_request ]; then
+            BASE="$PR_BASE"
+          else
+            BASE="$PUSH_BEFORE"
+          fi
+          # A new branch or a force push reports an unusable base; fall back to
+          # the tip rather than silently checking nothing.
+          if [ -n "$BASE" ] && [ "$BASE" != "$ZERO" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            COMMITS=$(git rev-list "$BASE..HEAD")
+          else
+            COMMITS=$(git rev-list -1 HEAD)
+          fi
+          # Anchored on the trailer syntax, so prose that merely mentions Claude
+          # and a genuine human Co-Authored-By both pass.
+          PAT='co-authored-by:.*(claude|anthropic)|generated with .*claude'
+          RC=0
+          for C in $COMMITS; do
+            if git log -1 --format=%B "$C" | grep -Eqi "$PAT"; then
+              echo "::error::$(git log -1 --format='%h %s' "$C") carries an AI attribution trailer"
+              RC=1
+            fi
+          done
+          [ "$RC" = 0 ] && echo "checked $(echo "$COMMITS" | wc -w) commit(s): no AI attribution trailers"
+          exit $RC
