@@ -616,7 +616,7 @@
     },
     {
       "msgid": 8207, "name": "FS_DELETE",
-      "doc": "Delete one file from the SD card (filesystem navigation). The FC replies with COMMAND_ACK only: ACCEPTED on success, DENIED if the path is absent or protected, TEMPORARILY_REJECTED if the file is in use right now, FAILED if the unlink itself errored. Two classes of path are refused: the calibration and tune stores (cal.bin, pid.bin), permanently, because losing them costs a full recalibration; and the high-speed IMU recording (imuhs.bin) while a session is recording, which is temporary and succeeds once disarmed. docs/reference/messages/fs_nav.md.",
+      "doc": "Delete one file from the SD card (filesystem navigation). The FC replies with COMMAND_ACK only: ACCEPTED on success, DENIED if the path is absent or permanently protected, TEMPORARILY_REJECTED if the path is protected only while something is using it (retry later), FAILED if the unlink itself errored. WHICH paths fall in which class is the vehicle's own runtime policy and is deliberately not part of this contract: it varies by build and by board, so a ground station that hardcoded a list would be wrong on the next one. Ask, and read the result code. docs/reference/messages/fs_nav.md.",
       "fields": [
         { "index": 0, "name": "target_sys",  "type": "u8" },
         { "index": 1, "name": "target_comp", "type": "u8" },

@@ -60,26 +60,30 @@ else — there is no outcome to report but the result code:
 Two classes of path are refused, and the result code is what separates them —
 `DENIED` means stop asking, `TEMPORARILY_REJECTED` means ask again later:
 
-- **`cal.bin` and `pid.bin`, always.** The calibration and tune stores. Losing
-  either costs a full recalibration or retune, and neither is ever the file
-  someone meant to reclaim space with. Matched on the basename,
-  case-insensitively, because FatFS is case-insensitive and a guard that only
-  caught one spelling of `PID.BIN` would be no guard at all.
-- **`v_nav.bin`, `v_sys.bin`, `v_gen.bin`, always.** The blackbox ring files.
-  Deleting one is not the small thing its name suggests: `fs_owner_boot_init`
-  preallocates all three at the next boot and `vfs_preallocate` zero-fills
-  512 B at a time, so 30 MB of re-creation runs before the scheduler reaches
-  `timer_callback_init` — the aircraft looks hung for minutes. They are ring
-  files besides, so deleting one reclaims nothing: the space is already fixed.
-- **`imuhs.bin` while a session is recording.** The high-speed recorder holds it
-  open and is writing into it. This one is state-gated rather than permanent,
-  so it succeeds once disarmed. The gate is re-checked at the unlink itself, not
-  only when the request arrives, because a session can start in between.
+- **Permanently protected.** Paths whose loss is not recoverable by retrying:
+  stores that would cost a recalibration or a retune to rebuild. Always
+  `DENIED`.
+- **Protected while in use.** Paths something currently holds open — a
+  recorder mid-session, a transfer mid-flight. `TEMPORARILY_REJECTED`, and the
+  same request succeeds once the holder lets go. The gate is re-checked at the
+  unlink itself, not only when the request arrives, because a holder can
+  appear in between.
 
-Policy lives in `fs_query.c`, not in the fs_owner gateway: the owner moves
-bytes, the service decides what may be moved. `fs_owner_unlink` enforces no
-policy of its own, and drops any cached write/read handle on the path first so
-no later flush can write into clusters the unlink has freed.
+**Which paths fall in which class is the vehicle's policy, not this
+protocol's.** It varies by build and by board, and a ground station that
+hardcoded a list would be wrong on the next vehicle it talked to — and wrong
+again after a firmware update that renamed a file. Ask for the delete and read
+the result code. That is the whole contract.
+
+Matching is expected to be on the basename and case-insensitive, because FAT
+is case-insensitive: a guard that caught only one spelling of a name would be
+no guard at all.
+
+A vehicle is expected to keep this policy in the service that answers the
+request rather than in whatever moves the bytes: the storage layer moves
+bytes, the service decides what may be moved. An unlink should also drop any
+cached handle on the path first, so no later flush can write into clusters the
+unlink has already freed.
 
 ## Notes
 
