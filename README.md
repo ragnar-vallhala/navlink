@@ -50,6 +50,18 @@ field indices, ≤255-byte payloads) and self-checks the CRC (`crc16("123456789"
   `navlink_handlers_t` struct of function pointers; Python `Parser` with a
   `Handlers` object. This is the framing layer, so callers don't hand-write it.
 
+## Branches
+
+- **`main`** — development. Every change arrives as a PR and must pass the
+  suite. Linear history.
+- **`stable`** — releases, and what downstream repos pin. Release tags live
+  here. A release is `main` merged into `stable` and tagged there, so merge
+  commits are expected and linear history is not required.
+
+A consumer should pin a tag on `stable`, never a commit on `main`: `main`
+carries work that has passed CI but has not been released, including changes
+to this repo's own tooling that no consumer needs.
+
 ## Test
 
 ```sh
