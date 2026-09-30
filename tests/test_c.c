@@ -29,6 +29,13 @@
 
 void navlink_emit_parity(void); /* generated/c/navlink_parity.c */
 
+static void count_heartbeat(void *ctx, const navlink_frame_hdr_t *hdr,
+                            const navlink_heartbeat_t *msg) {
+  (void)hdr;
+  (void)msg;
+  ++*(int *)ctx;
+}
+
 int main(void) {
   /* CRC-16/MCRF4XX self-check (spec §16.1). */
   uint16_t crc = 0xFFFF;
@@ -123,6 +130,40 @@ int main(void) {
     assert(t2.t1_gcs_tx == 0xFFFFFFFFFFFFFFFFull &&
            t2.t3_fc_tx == 0x0102030405060708ull &&
            t2.commanded_offset_ms == INT32_MIN && t2.role == 1 && t2.seq == 9);
+  }
+
+  /* Parser: a stray 0x56 right before a frame must not cost that frame (§3.4),
+   * and a CRC-valid frame with an unimplemented incompat bit is dropped (§3.3). */
+  {
+    int hb = 0;
+    navlink_handlers_t h;
+    memset(&h, 0, sizeof h);
+    h.ctx = &hb;
+    h.on_heartbeat = count_heartbeat;
+    navlink_parser_t p;
+    navlink_parser_init(&p);
+    navlink_heartbeat_t m;
+    memset(&m, 0, sizeof m);
+    m.type = 1;
+    uint8_t fr[NAVLINK_MAX_FRAME + 2];
+    fr[0] = NAVLINK_SYNC;
+    size_t n = navlink_heartbeat_encode(fr + 1, &m, 0, 1, 1);
+    navlink_parser_push(&p, &h, fr, n + 1);
+    assert(hb == 1);
+
+    n = navlink_heartbeat_encode(fr, &m, 0, 1, 1);
+    fr[3] = 0x10; /* reserved incompat bit; re-CRC so only the flag is wrong */
+    uint16_t c = 0xFFFF;
+    for (size_t i = 1; i < n - 2; i++)
+      navlink_crc_accumulate(fr[i], &c);
+    navlink_crc_accumulate(NAVLINK_CRC_EXTRA_HEARTBEAT, &c);
+    fr[n - 2] = (uint8_t)c;
+    fr[n - 1] = (uint8_t)(c >> 8);
+    navlink_parser_push(&p, &h, fr, n);
+    assert(hb == 1);
+    n = navlink_heartbeat_encode(fr, &m, 0, 1, 1); /* framing is not lost */
+    navlink_parser_push(&p, &h, fr, n);
+    assert(hb == 2);
   }
 
   /* Emit parity table (msgid crc_extra wire_size). */

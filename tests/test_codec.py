@@ -389,6 +389,22 @@ class TestFrameCodec(unittest.TestCase):
         self.assertEqual(errs, [1026])
         self.assertEqual(hbs, [1])                          # resynced and decoded the next frame
 
+    def test_parser_stray_sync_before_frame(self):          # §3.4: demux on byte 1
+        hbs = []
+        p = nl.Parser(nl.Handlers(on_heartbeat=lambda f, m: hbs.append(m.type)))
+        p.push(b"\x56" + nl.encode(nl.Heartbeat(type=1)))   # 0x56 then a real frame
+        p.push(b"\x56\x11" + nl.encode(nl.Heartbeat(type=2)))  # v1-looking byte 1
+        self.assertEqual(hbs, [1, 2])
+
+    def test_parser_drops_unknown_incompat_flags(self):      # §3.3
+        hb = nl.Heartbeat(type=1)
+        hbs = []
+        p = nl.Parser(nl.Handlers(on_heartbeat=lambda f, m: hbs.append(m.type),
+                                  on_crc_error=lambda f: hbs.append("crc")))
+        p.push(build_frame(hb.MSGID, hb.pack(), hb.CRC_EXTRA, incompat=0x10))  # CRC-valid
+        p.push(nl.encode(hb))                              # framing is not lost
+        self.assertEqual(hbs, [1])
+
     def test_unknown_msgid(self):
         frame = nl.encode(nl.Heartbeat(type=1))
         frame = bytearray(frame)
