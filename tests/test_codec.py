@@ -423,6 +423,22 @@ class TestDialectValidation(unittest.TestCase):
     def test_clean_dialect_passes(self):
         self.assertEqual(generate.validate(DIALECT), [])
 
+    def test_dialect_matches_schema(self):                  # §7.4
+        try:
+            import jsonschema
+        except ImportError:
+            self.skipTest("jsonschema not installed (CI installs it)")
+        with open(os.path.join(ROOT, "dialect.schema.json")) as fh:
+            jsonschema.validate(DIALECT, json.load(fh))
+
+    def test_extension_index_gap_rejected(self):
+        bad = {"messages": [
+            {"msgid": 1, "name": "A",
+             "fields": [{"index": 0, "name": "x", "type": "u8"},
+                        {"index": 2, "name": "y", "type": "u8", "extension": True}]},
+        ]}
+        self.assertTrue(any("extension indices" in e for e in generate.validate(bad)))
+
     def test_duplicate_msgid_rejected(self):
         bad = {"messages": [
             {"msgid": 1, "name": "A", "fields": [{"index": 0, "name": "x", "type": "u8"}]},

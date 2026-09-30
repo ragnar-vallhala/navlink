@@ -185,6 +185,11 @@ def validate(d):
         nonext = [f["index"] for f in m["fields"] if not f.get("extension")]
         if sorted(nonext) != list(range(len(nonext))):
             errs.append(f"{name}: non-extension indices not contiguous from 0: {sorted(nonext)}")
+        else:
+            # extension fields continue the sequence (spec §7.1)
+            ext = sorted(f["index"] for f in m["fields"] if f.get("extension"))
+            if ext != list(range(len(nonext), len(nonext) + len(ext))):
+                errs.append(f"{name}: extension indices must continue from {len(nonext)}: {ext}")
         fnames = [f["name"] for f in m["fields"]]
         if len(fnames) != len(set(fnames)):
             errs.append(f"{name}: duplicate field name")
