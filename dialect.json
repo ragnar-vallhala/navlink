@@ -615,6 +615,15 @@
       ]
     },
     {
+      "msgid": 1050, "name": "BATTERY",
+      "doc": "Pack voltage from a resistor divider on an ADC pin. `valid` is 0 when no conversion has succeeded, which distinguishes a genuinely flat pack from a broken measurement -- the two are indistinguishable from the voltage alone. `counts` is the raw ADC value, carried because the volts-per-count scale is a calibrated board constant: when a reading looks wrong, the count is what says whether the converter or the calibration is at fault. Cell count is not sensed; a consumer infers it.",
+      "fields": [
+        { "index": 0, "name": "voltage", "type": "f32", "unit": "V" },
+        { "index": 1, "name": "counts",  "type": "u16", "doc": "raw ADC counts the voltage was derived from" },
+        { "index": 2, "name": "valid",   "type": "u8", "doc": "1 = the last conversion succeeded" }
+      ]
+    },
+    {
       "msgid": 8207, "name": "FS_DELETE",
       "doc": "Delete one file from the SD card (filesystem navigation). The FC replies with COMMAND_ACK only: ACCEPTED on success, DENIED if the path is absent or permanently protected, TEMPORARILY_REJECTED if the path is protected only while something is using it (retry later), FAILED if the unlink itself errored. WHICH paths fall in which class is the vehicle's own runtime policy and is deliberately not part of this contract: it varies by build and by board, so a ground station that hardcoded a list would be wrong on the next one. Ask, and read the result code. docs/reference/messages/fs_nav.md.",
       "fields": [
