@@ -468,6 +468,48 @@ class TestDialectValidation(unittest.TestCase):
         ]}
         self.assertTrue(any("> 255" in e for e in generate.validate(bad)))
 
+    def test_battery_flags_is_a_disjoint_bitmask(self):
+        """BATTERY.flags must be able to carry several reasons at once.
+
+        The point of replacing the old boolean `valid` is that a reading can be
+        unbelievable for more than one reason and a consumer has to tell them
+        apart. If the bits were not disjoint powers of two, OR-ing them would
+        lose information silently -- worse than the boolean it replaced, because
+        it would look like it worked.
+        """
+        entries = {e["name"]: e["value"]
+                   for e in DIALECT["enums"]["battery_flags"]["entries"]}
+        self.assertEqual(entries["NONE"], 0, "NONE must be the empty mask")
+        bits = [v for n, v in entries.items() if n != "NONE"]
+        for v in bits:
+            self.assertEqual(v & (v - 1), 0, f"{v} is not a single bit")
+        self.assertEqual(len(set(bits)), len(bits), "two flags share a bit")
+
+    def test_battery_flags_round_trips_several_bits(self):
+        """A pack present and measured, with a railed converter on top: three
+        bits through the real encoder and the incremental Parser."""
+        e = {x["name"]: x["value"]
+             for x in DIALECT["enums"]["battery_flags"]["entries"]}
+        mask = e["PRESENT"] | e["CONVERTED"] | e["RAILED"]
+        got = []
+        h = nl.Handlers(**{nl.MSGID_TO_HANDLER[nl.Battery.MSGID]:
+                           lambda f, m: got.append(m)})
+        p = nl.Parser(h)
+        p.push(nl.encode(nl.Battery(voltage=12.46, counts=1091, flags=mask), seq=7))
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0].flags, mask)
+        self.assertEqual(got[0].counts, 1091)
+        self.assertAlmostEqual(got[0].voltage, 12.46, places=3)
+
+    def test_battery_flags_is_bound_to_its_enum(self):
+        """An unbound u8 generates no names, so nothing could decode a reason --
+        the field would be a magic number again."""
+        batt = next(m for m in DIALECT["messages"] if m["name"] == "BATTERY")
+        f = next(f for f in batt["fields"] if f["name"] == "flags")
+        self.assertEqual(f.get("enum"), "battery_flags")
+        self.assertFalse(any(x["name"] == "valid" for x in batt["fields"]),
+                         "the boolean `valid` must be gone, not shadowed")
+
     def test_unknown_type_rejected(self):
         bad = {"messages": [
             {"msgid": 1, "name": "A", "fields": [{"index": 0, "name": "x", "type": "f128"}]},
