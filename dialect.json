@@ -140,6 +140,17 @@
         { "name": "ABORT", "value": 4 },
         { "name": "EOF",   "value": 8 }
       ]
+    },
+    "battery_flags": {
+      "doc": "BATTERY.flags \u2014 bitmask saying whether the pack voltage can be believed, and when it cannot, why. PRESENT and CONVERTED are the two that must both be set for `voltage` to mean a pack: CONVERTED says the ADC produced a reading, PRESENT says the reading is above the board's presence floor. They are separate because a disconnected pack does NOT read zero -- the divider keeps measuring the battery-side rail, which sits on residual charge in the ESC capacitors and converts perfectly, so a conversion succeeding says nothing about a pack being there. TIMEOUT and INIT_FAIL are the reasons CONVERTED can be clear. RAILED means the count is at full scale, which is a reference or wiring fault rather than a very large pack, and is called out because such a reading would otherwise pass the presence floor and be believed. The floor is a PRESENCE test, not a health test: cell count is not sensed, so a dangerously flat pack still reports PRESENT and its voltage is to be trusted.",
+      "entries": [
+        { "name": "NONE",      "value": 0 },
+        { "name": "PRESENT",   "value": 1 },
+        { "name": "CONVERTED", "value": 2 },
+        { "name": "TIMEOUT",   "value": 4 },
+        { "name": "INIT_FAIL", "value": 8 },
+        { "name": "RAILED",    "value": 16 }
+      ]
     }
   },
 
@@ -616,11 +627,11 @@
     },
     {
       "msgid": 1050, "name": "BATTERY",
-      "doc": "Pack voltage from a resistor divider on an ADC pin. `valid` is 0 when no conversion has succeeded, which distinguishes a genuinely flat pack from a broken measurement -- the two are indistinguishable from the voltage alone. `counts` is the raw ADC value, carried because the volts-per-count scale is a calibrated board constant: when a reading looks wrong, the count is what says whether the converter or the calibration is at fault. Cell count is not sensed; a consumer infers it.",
+      "doc": "Pack voltage from a resistor divider on an ADC pin. `voltage` means a pack only when `flags` has both PRESENT and CONVERTED set; otherwise it is a reading of something that is not a battery, and `flags` says which. `voltage` and `counts` are sent REGARDLESS, because they are the evidence: a de-energised rail reads a low coherent voltage with plausible counts, where a broken converter reads zero counts or rails, and suppressing the number would discard the only thing that separates those. `counts` is the raw ADC value, carried because the volts-per-count scale is a calibrated board constant -- when a reading looks wrong, the count says whether the converter or the calibration is at fault. Cell count is not sensed; a consumer infers it.",
       "fields": [
         { "index": 0, "name": "voltage", "type": "f32", "unit": "V" },
         { "index": 1, "name": "counts",  "type": "u16", "doc": "raw ADC counts the voltage was derived from" },
-        { "index": 2, "name": "valid",   "type": "u8", "doc": "1 = the last conversion succeeded" }
+        { "index": 2, "name": "flags",   "type": "u8", "enum": "battery_flags" }
       ]
     },
     {
