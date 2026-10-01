@@ -169,7 +169,8 @@ spec §16 conformance vectors.
 > v1/v2 coexistence: a peer that still speaks legacy v1 must demux on byte 1 —
 > `(b1 & 0x0F)==1` ⇒ v1, `b1==0x02` ⇒ v2 (spec §3.4); the generated v2 parser
 > ignores non-v2 frames. `IFLAG_SIGNED/ENCRYPTED/CRC32/FRAGMENTED` and time-sync
-> are spec features layered on top; not provided by the codec.
+> are spec features layered on top; not provided by the codec, so the parser
+> drops any frame with an `incompat_flags` bit set (spec §3.3).
 
 ---
 
@@ -189,15 +190,22 @@ add_custom_command(
 feed UART bytes to the generated parser:
 
 ```c
-static void on_cmd_set_pid(void *ctx, const navlink_frame_hdr_t *hdr,
-                           const navlink_cmd_set_pid_t *c) {
+/* A command handler RETURNS its result; the dispatch builds and sends the
+ * COMMAND_ACK (spec §12.1), so a handler cannot forget it or send it twice. */
+static navlink_ack_t on_cmd_set_pid(void *ctx, const navlink_frame_hdr_t *hdr,
+                                    const navlink_cmd_set_pid_t *c) {
     apply_pid(c->axis, c->kp, c->ki, c->kd, c->kff);     /* aligned struct: real math here */
-    send_command_ack(NAVLINK_MSGID_CMD_SET_PID, c->req_seq, NAVLINK_COMMAND_RESULT_ACCEPTED);
+    return navlink_ack_result(NAVLINK_COMMAND_RESULT_ACCEPTED);
 }
 
+static void uart_send(void *ctx, const uint8_t *frame, uint16_t len) { uart_write(frame, len); }
+
 static const navlink_handlers_t HANDLERS = {
+    .send = uart_send,                    /* required once any command slot is set: */
+    .sysid = FC_SYSID, .compid = FC_COMPID,   /* without it every ACK is silently dropped */
     .on_cmd_set_pid = on_cmd_set_pid,
-    /* .on_cmd_arm = ..., .on_time_sync = ..., etc.  Unset slots are simply ignored. */
+    /* .on_cmd_arm = ..., .on_time_sync = ..., etc.  An unset telemetry slot is
+     * ignored; an unset COMMAND slot is answered UNSUPPORTED automatically. */
 };
 
 static navlink_parser_t g_parser;
@@ -231,8 +239,9 @@ void emit_attitude(float roll, float pitch, float yaw) {
   boot) for intra-vehicle alignment; wall-clock timestamps come only from the
   GCS-driven sync (spec §6, §10) — the FC never invents wall-clock time.
 - **Safety gate.** Until time-sync succeeds the FC is "unsynchronised" and must
-  reject secured/command frames (spec §10.5) — that's policy in *your* dispatch,
-  not the codec.
+  reject secured/command frames (spec §10.5). Enforce it in
+  `navlink_handlers_t.command_gate`, which the dispatch consults before every
+  command handler — a new command is then gated without touching its handler.
 
 The parser + handler table replace the hand-written `if/else` on packet type and
 the nested `if/else` on command id. `navlink_msg_table` /
