@@ -185,6 +185,11 @@ def validate(d):
         nonext = [f["index"] for f in m["fields"] if not f.get("extension")]
         if sorted(nonext) != list(range(len(nonext))):
             errs.append(f"{name}: non-extension indices not contiguous from 0: {sorted(nonext)}")
+        else:
+            # extension fields continue the sequence (spec §7.1)
+            ext = sorted(f["index"] for f in m["fields"] if f.get("extension"))
+            if ext != list(range(len(nonext), len(nonext) + len(ext))):
+                errs.append(f"{name}: extension indices must continue from {len(nonext)}: {ext}")
         fnames = [f["name"] for f in m["fields"]]
         if len(fnames) != len(set(fnames)):
             errs.append(f"{name}: duplicate field name")
@@ -531,9 +536,15 @@ def gen_c_frame_defs(d):
     p("    if (p->state == 0) {                       /* hunting for sync */")
     p("        if (b == NAVLINK_SYNC) { p->buf[0] = b; p->idx = 1; p->state = 1; }")
     p("    } else if (p->state == 1) {                /* header */")
+    p("        if (p->idx == 1 && b != NAVLINK_VERSION) {  /* §3.4: demux on byte 1, resync at once */")
+    p("            if (b != NAVLINK_SYNC) p->state = 0;    /* a 0x56 here may be the real sync */")
+    p("            return;")
+    p("        }")
     p("        p->buf[p->idx++] = b;")
     p("        if (p->idx == NAVLINK_HEADER_LEN) {")
-    p("            if (p->buf[1] != NAVLINK_VERSION) { p->state = 0; p->idx = 0; return; }")
+    p("            /* §3.3: an incompat bit we do not implement (we implement none) means the")
+    p("             * frame cannot be parsed safely -- its trailer may not even be a CRC-16. */")
+    p("            if (p->buf[3] != 0) { p->state = 0; p->idx = 0; return; }")
     p("            p->need = (uint16_t)(NAVLINK_HEADER_LEN + p->buf[2] + 2u);")
     p("            p->state = 2;")
     p("        }")
@@ -792,9 +803,13 @@ def gen_py_frame(d):
     p("            if b == NAVLINK_SYNC:")
     p("                self._buf = bytearray([b]); self._state = 1")
     p("        elif self._state == 1:")
+    p("            if len(self._buf) == 1 and b != NAVLINK_VERSION:  # §3.4: demux on byte 1")
+    p("                if b != NAVLINK_SYNC:                        # a 0x56 here may be the real sync")
+    p("                    self._state = 0")
+    p("                return")
     p("            self._buf.append(b)")
     p("            if len(self._buf) == HEADER_LEN:")
-    p("                if self._buf[1] != NAVLINK_VERSION:")
+    p("                if self._buf[3] != 0:                        # §3.3: unimplemented incompat bit")
     p("                    self._state = 0; self._buf = bytearray()")
     p("                else:")
     p("                    self._need = HEADER_LEN + self._buf[2] + 2")
