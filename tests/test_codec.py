@@ -439,6 +439,17 @@ class TestDialectValidation(unittest.TestCase):
         ]}
         self.assertTrue(any("extension indices" in e for e in generate.validate(bad)))
 
+    def test_undeclared_section_rejected(self):
+        bad = {"sections": {"a": {"title": "A", "sections": {"b": {"title": "B"}}}},
+               "messages": [
+            {"msgid": 1, "name": "A", "section": "a.b",
+             "fields": [{"index": 0, "name": "x", "type": "u8"}]},
+            {"msgid": 2, "name": "B", "section": "a.c",
+             "fields": [{"index": 0, "name": "x", "type": "u8"}]},
+        ]}
+        errs = [e for e in generate.validate(bad) if "section" in e]
+        self.assertEqual(errs, ["message B: section 'a.c' is not declared in sections"])
+
     def test_duplicate_msgid_rejected(self):
         bad = {"messages": [
             {"msgid": 1, "name": "A", "fields": [{"index": 0, "name": "x", "type": "u8"}]},
