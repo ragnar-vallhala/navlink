@@ -14,22 +14,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Build and launch the vtest orchestrator (vtest/) over this repo's suites.
+# Run vtest over this repo's suites (vtest.conf), from anywhere in the tree.
 #
 #   scripts/vtest.sh           interactive TUI
-#   scripts/vtest.sh <args>    passed straight through to the binary
+#   scripts/vtest.sh --run     everything, batch
+#   scripts/vtest.sh --list    the catalog
 #
-# Rebuilds only when the source is newer than the binary.
+# vtest is a system tool shared by every repo on the machine, not something this
+# tree builds or pins: vayu and navigator pull navlink in as a submodule, and a
+# nested vtest pin would ride along into every one of their checkouts. Install
+# it once and every repo uses the same binary. VTEST=path forces a specific one.
 set -eu
 cd "$(dirname "$0")/.."
-BIN=build/vtest
 
-if [ ! -f vtest/vtest.c ]; then
-  echo "vtest/ is empty — run: git submodule update --init" >&2
+VTEST="${VTEST:-vtest}"
+if ! command -v "$VTEST" >/dev/null 2>&1; then
+  echo "vtest not installed. Install it once:" >&2
+  echo "  git clone https://github.com/ragnar-vallhala/vtest.git ~/src/vtest" >&2
+  echo "  cmake -S ~/src/vtest -B ~/src/vtest/build" >&2
+  echo "  cmake --build ~/src/vtest/build" >&2
+  echo "  cmake --install ~/src/vtest/build --prefix ~/.local" >&2
   exit 2
 fi
-if [ ! -x "$BIN" ] || [ vtest/vtest.c -nt "$BIN" ]; then
-  mkdir -p build
-  ${CC:-cc} -std=c11 -O2 -Wall -Wextra vtest/vtest.c -o "$BIN"
-fi
-exec "$BIN" "$@"
+exec "$VTEST" "$@"
