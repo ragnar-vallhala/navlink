@@ -6,12 +6,14 @@
   "properties": {
     "dialect": { "type": "string" },
     "version": { "const": 2 },
+    "sections": { "$ref": "#/$defs/sections" },
     "enums": {
       "type": "object",
       "additionalProperties": {
         "type": "object",
-        "required": ["entries"],
+        "required": ["section", "entries"],
         "properties": {
+          "section": { "$ref": "#/$defs/section_path" },
           "doc": { "type": "string" },
           "entries": {
             "type": "array",
@@ -34,11 +36,12 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["msgid", "name", "fields"],
+        "required": ["msgid", "name", "section", "fields"],
         "properties": {
           "msgid":    { "type": "integer", "minimum": 0, "maximum": 16777215 },
           "name":     { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
           "replaces": { "type": ["string", "null"] },
+          "section":  { "$ref": "#/$defs/section_path" },
           "doc":      { "type": "string" },
           "ack":      { "type": "boolean", "description": "Override whether the receiver owes a COMMAND_ACK. Default: true for the command range 0x002000-0x002FFF, false otherwise (spec §12.1)." },
           "test":     { "type": "boolean", "description": "Test-only message: emitted only under generate.py --profile test, and its msgid must be in the vendor/test half 0x800000-0xFFFFFF." },
@@ -69,5 +72,26 @@
       }
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "section_path": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$",
+      "description": "Dotted path into the top-level sections tree, e.g. flight.tuning. Presentation only: it groups docs and the HTML tree, never reaches the wire or CRC_EXTRA."
+    },
+    "sections": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["title"],
+        "properties": {
+          "title":    { "type": "string" },
+          "doc":      { "type": "string" },
+          "sections": { "$ref": "#/$defs/sections" }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
 }

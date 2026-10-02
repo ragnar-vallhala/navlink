@@ -161,9 +161,28 @@ def crc_extra(msg):
     return ((crc & 0xFF) ^ (crc >> 8)) & 0xFF
 
 
+# ── sections (presentation only; never reaches the wire) ─────────────────────
+def section_paths(d):
+    """Dotted path -> section object, in declaration order, parents first."""
+    out = {}
+
+    def walk(secs, prefix):
+        for key, sec in secs.items():
+            out[prefix + key] = sec
+            walk(sec.get("sections", {}), prefix + key + ".")
+    walk(d.get("sections", {}), "")
+    return out
+
+
 # ── validation (light; the JSON Schema is the full check) ────────────────────
 def validate(d):
     errs = []
+    paths = section_paths(d)
+    for kind, name, obj in ([("message", m["name"], m) for m in d["messages"]]
+                            + [("enum", n, e) for n, e in d.get("enums", {}).items()]):
+        if obj.get("section") not in paths:
+            errs.append(f"{kind} {name}: section {obj.get('section')!r} is not declared "
+                        f"in sections")
     seen_ids, seen_names = {}, {}
     for m in d["messages"]:
         mid, name = m["msgid"], m["name"]
@@ -1033,9 +1052,9 @@ HTML_TEMPLATE = """<!doctype html>
 def gen_html(d):
     """A self-contained, pan/zoom, fold/expand node tree of the dialect.
 
-    Root -> {Commands, Telemetry & Other, Enums} -> messages/enums -> fields/entries
-    (enum-typed fields expand to their enum values). No external assets; open the
-    file directly in a browser."""
+    Root -> {Commands, Telemetry & Other, Enums} -> the dialect's nested `sections`
+    -> messages/enums -> fields/entries (enum-typed fields expand to their enum
+    values). No external assets; open the file directly in a browser."""
     enums = d.get("enums", {})
 
     def entry_nodes(ename):
@@ -1067,23 +1086,43 @@ def gen_html(d):
                 "meta": meta, "doc": m.get("doc", ""),
                 "children": [field_node(f) for f in ordered_fields(m)]}
 
+    def tree(items):
+        """[(section path, node)] -> nested section group nodes, empty ones pruned."""
+        by = {}
+        for path, n in items:
+            by.setdefault(path, []).append(n)
+
+        def build(secs, prefix):
+            out = []
+            for key, sec in secs.items():
+                path = prefix + key
+                kids = build(sec.get("sections", {}), path + ".") + by.get(path, [])
+                if kids:
+                    out.append({"name": sec.get("title", key), "kind": "group",
+                                "meta": path, "doc": sec.get("doc", ""), "children": kids})
+            return out
+        return build(d.get("sections", {}), "")
+
     ms = sorted(d["messages"], key=lambda m: m["msgid"])
-    cmds = [msg_node(m) for m in ms if 0x2000 <= m["msgid"] <= 0x2FFF]
-    other = [msg_node(m) for m in ms if not (0x2000 <= m["msgid"] <= 0x2FFF)]
-    enodes = [{"name": en, "kind": "enum", "meta": "{} values".format(len(e["entries"])),
-               "doc": e.get("doc", ""),
-               "children": [{"name": "{} = {}".format(x["name"], x["value"]), "kind": "entry"}
-                            for x in e["entries"]]}
-              for en, e in enums.items()]
+    cmd_items = [(m["section"], msg_node(m)) for m in ms if 0x2000 <= m["msgid"] <= 0x2FFF]
+    other_items = [(m["section"], msg_node(m)) for m in ms
+                   if not (0x2000 <= m["msgid"] <= 0x2FFF)]
+    enum_items = [(e["section"],
+                   {"name": en, "kind": "enum", "meta": "{} values".format(len(e["entries"])),
+                    "doc": e.get("doc", ""),
+                    "children": [{"name": "{} = {}".format(x["name"], x["value"]),
+                                  "kind": "entry"} for x in e["entries"]]})
+                  for en, e in enums.items()]
     title = "{} v{}".format(d.get("dialect", "navlink"), d.get("version", "?"))
     root = {"name": title, "kind": "root",
             "meta": "{} messages · {} enums".format(len(d["messages"]), len(enums)),
             "children": [
                 {"name": "Commands", "kind": "group",
-                 "meta": "{} · 0x2000–0x2FFF".format(len(cmds)), "children": cmds},
+                 "meta": "{} · 0x2000–0x2FFF".format(len(cmd_items)), "children": tree(cmd_items)},
                 {"name": "Telemetry & Other", "kind": "group",
-                 "meta": str(len(other)), "children": other},
-                {"name": "Enums", "kind": "group", "meta": str(len(enodes)), "children": enodes},
+                 "meta": str(len(other_items)), "children": tree(other_items)},
+                {"name": "Enums", "kind": "group", "meta": str(len(enum_items)),
+                 "children": tree(enum_items)},
             ]}
     data = json.dumps(root, ensure_ascii=False).replace("</", "<\\/")
     return HTML_TEMPLATE.replace("__TITLE__", title).replace("__DATA__", data)
