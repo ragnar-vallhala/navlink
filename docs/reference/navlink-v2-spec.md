@@ -381,6 +381,10 @@ the `CRC_EXTRA` table, and the dispatcher are generated (§8).
    because JSON numbers are IEEE-754 doubles (exact only to 2⁵³).
 7. `msgid` MUST lie in the core half (`0x000000`–`0x7FFFFF`) for in-tree
    messages; vendor dialects use `0x800000`–`0xFFFFFF` (§9).
+8. **Every message and enum names its `section`**, a dotted path (`flight.tuning`)
+   into the top-level `sections` tree; codegen MUST reject an undeclared path.
+   Sections are presentation only (docs, the HTML tree) and never enter the wire
+   format or `CRC_EXTRA`, so moving a message between sections is not an ABI change.
 
 The generator auto-assigns and then **freezes** `index` values for newly added
 fields (writing them back into the file), so authors need not hand-number while
@@ -389,9 +393,12 @@ the explicit index still guarantees a stable ABI.
 ### 7.2 Message object schema
 
 ```
+sections := { key: { "title": string, "doc": string (optional),
+                     "sections": sections (optional) }, ... }
 message := {
   "msgid":    integer (0 .. 16777215),
   "name":     string  (UPPER_SNAKE, unique),
+  "section":  string  (dotted path into sections, e.g. "flight.tuning"),
   "replaces": string  (optional, v1 cross-reference),
   "doc":      string  (optional),
   "fields":   [ field, ... ]
