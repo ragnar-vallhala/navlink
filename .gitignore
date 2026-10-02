@@ -2,7 +2,7 @@ generated/
 __pycache__/
 tests/_test_c.bin
 
-# vtest binary (scripts/vtest.sh rebuilds it on demand)
+# build trees (vtest.conf configures build/ and build_san/)
 build/
 CMakeCache.txt
 CMakeFiles/
