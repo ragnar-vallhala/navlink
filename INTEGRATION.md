@@ -153,6 +153,20 @@ add_custom_command(
 - CI re-runs `generate.py` + `tests/run_tests.py` and fails if the tree differs
   (someone hand-edited generated code) or if C↔Python parity breaks.
 
+### Consuming navlink with nav
+
+Under `nav`, skip the hand-written wiring above. Declare the library in
+`nav.toml` and link the `navlink` target (name = `[project].name`):
+
+```toml
+[dependencies]
+navlink = { git = "https://github.com/ragnar-vallhala/navlink", ref = "vX.Y.Z" }
+```
+
+The target carries the generated `navlink_msgs.c` (compiled for the app's
+toolchain, build-time generation, Python 3 on the host only) and the generated
+header directory. See README.md for details and the `NAVLINK_PROFILE` option.
+
 ---
 
 ## 5. Payload reshapings that need a decision (not mechanical)
