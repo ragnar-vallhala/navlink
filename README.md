@@ -62,6 +62,28 @@ A consumer should pin a tag on `stable`, never a commit on `main`: `main`
 carries work that has passed CI but has not been released, including changes
 to this repo's own tooling that no consumer needs.
 
+## Consuming navlink with nav
+
+navlink is a `nav` library. In the firmware's `nav.toml`:
+
+```toml
+[dependencies]
+navlink = { git = "https://github.com/ragnar-vallhala/navlink", ref = "vX.Y.Z" }
+```
+
+nav `add_subdirectory()`s it and links the CMake target **`navlink`** (the target
+name equals `[project].name`) into the app. Linking it gives you the C codec
+generated from `dialect.json` at build time, compiled for your (cross) toolchain,
+and its header directory, so `#include "navlink_msgs.h"` works. Nothing generated
+is committed. Python 3 is needed on the build host only (nav passes
+`-DPython3_EXECUTABLE`); the codec itself needs just `<stdint.h>`, `<stddef.h>`
+and `memcpy`/`memset`. `navlink_parity.c` (host-only, uses stdio) is not part of
+the library. `-DNAVLINK_PROFILE=test` (nav: `options = ["NAVLINK_PROFILE=test"]`)
+includes messages flagged `"test": true`; the default `prod` omits them.
+
+Pin a tag on `stable`. The tag must equal `[project].version` in `nav.toml`, so
+bump it in the release PR.
+
 ## Test
 
 ```sh
