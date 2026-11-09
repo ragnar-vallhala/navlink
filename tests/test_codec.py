@@ -419,6 +419,141 @@ class TestFrameCodec(unittest.TestCase):
         self.assertEqual(unknown, [0x777777])
 
 
+class TestParserRobustness(unittest.TestCase):
+    """#136: resync after a rejected frame, unknown msgids, command auto-ack."""
+
+    HB = nl.Heartbeat(type=3)
+
+    def _hb_parser(self):
+        seen = []
+        h = nl.Handlers(on_heartbeat=lambda f, m: seen.append(m.type),
+                        on_crc_error=lambda f: seen.append("crc"),
+                        on_unknown=lambda f: seen.append(("unk", f.msgid)))
+        return nl.Parser(h), seen
+
+    def test_false_sync_unknown_id_does_not_swallow_frame(self):
+        # 56 02 C8 00 claims a 200 B payload; the real frame starts inside its span.
+        p, seen = self._hb_parser()
+        p.push(b"\x56\x02\xC8\x00" + nl.encode(self.HB) + b"\x00" * 260)
+        self.assertEqual([s for s in seen if s == 3], [3])
+
+    def test_false_sync_crc_failure_does_not_swallow_frame(self):
+        # A false header with a KNOWN msgid (HEARTBEAT, 0) so the CRC check fails, with a
+        # real frame inside the 32 B payload span it claims.
+        p, seen = self._hb_parser()
+        false_hdr = bytes([0x56, 0x02, 0x20, 0x00, 0, 1, 1, 0, 0, 0])
+        p.push(false_hdr + nl.encode(self.HB) + b"\x00" * 60)
+        self.assertEqual(seen[0], "crc")
+        self.assertEqual([s for s in seen if s == 3], [3])
+
+    def test_false_syncs_nested(self):
+        # Two stacked false headers, then a frame, then a second frame: both recovered.
+        p, seen = self._hb_parser()
+        junk = bytes([0x56, 0x02, 0x20, 0x00, 0, 1, 1, 0, 0, 0])
+        p.push(junk + junk + nl.encode(self.HB) + nl.encode(nl.Heartbeat(type=4)) + b"\x00" * 80)
+        self.assertEqual([s for s in seen if isinstance(s, int)], [3, 4])
+
+    def test_incompat_reject_rescans(self):
+        # 56 02 00 10 ... is rejected by §3.3; a real frame hidden in its header is recovered.
+        p, seen = self._hb_parser()
+        p.push(bytes([0x56, 0x02, 0x00, 0x10]) + nl.encode(self.HB))
+        self.assertEqual(seen, [3])
+
+    def test_unknown_msgid_is_unverified_notification_only(self):
+        # §4.3: no CRC_EXTRA => unverifiable, undecodable. Notified once, nothing dispatched.
+        unknown, dispatched = [], []
+        p = nl.Parser(nl.Handlers(on_unknown=lambda f: unknown.append(f.msgid),
+                                  on_default=lambda f, m: dispatched.append(m)))
+        raw = bytes([0x56, 0x02, 0, 0, 0, 1, 1, 0x77, 0x77, 0x77])
+        crc = nl.crc16(raw[1:])
+        p.push(raw + bytes([crc & 0xFF, crc >> 8]))
+        self.assertEqual(unknown, [0x777777])
+        self.assertEqual(dispatched, [])
+        # a bad-CRC unknown frame is reported too: nothing could have said otherwise
+        p.push(raw + b"\x00\x00")
+        self.assertEqual(len(unknown), 2)
+
+    def test_unknown_frame_does_not_block_following_frame(self):
+        p, seen = self._hb_parser()
+        raw = bytes([0x56, 0x02, 0, 0, 0, 1, 1, 0x77, 0x77, 0x77, 0, 0])
+        p.push(raw + nl.encode(self.HB))
+        self.assertEqual([s for s in seen if s == 3], [3])
+
+    # -- auto-ack (parity with the C dispatch) --
+    def _cmd_parser(self, **kw):
+        out = []
+        h = nl.Handlers(send=out.append, sysid=7, compid=9, **kw)
+        return nl.Parser(h), out
+
+    def _decode_ack(self, frame):
+        got = []
+        nl.Parser(nl.Handlers(on_command_ack=lambda f, m: got.append((f, m)))).push(frame)
+        self.assertEqual(len(got), 1)
+        return got[0]
+
+    def test_command_autoack_accepted_by_default(self):
+        p, out = self._cmd_parser(on_cmd_arm=lambda f, m: None)
+        p.push(nl.encode(nl.CmdArm(req_seq=42, force=1)))
+        self.assertEqual(len(out), 1)
+        f, m = self._decode_ack(out[0])
+        self.assertEqual((m.command, m.req_seq, m.result), (nl.CmdArm.MSGID, 42, nl.CommandResult.ACCEPTED))
+        self.assertEqual((f.sysid, f.compid), (7, 9))
+        self.assertEqual(f.seq, 42)       # byte parity with C, which reuses req_seq (#131)
+
+    def test_command_autoack_handler_result(self):
+        p, out = self._cmd_parser(on_cmd_arm=lambda f, m: nl.Ack(nl.CommandResult.DENIED, 0, -5))
+        p.push(nl.encode(nl.CmdArm(req_seq=1)))
+        _, m = self._decode_ack(out[0])
+        self.assertEqual((m.result, m.result_param2), (nl.CommandResult.DENIED, -5))
+
+    def test_command_without_handler_is_unsupported(self):
+        seen = []
+        p, out = self._cmd_parser(on_default=lambda f, m: seen.append(m))
+        p.push(nl.encode(nl.CmdArm(req_seq=3)))
+        _, m = self._decode_ack(out[0])
+        self.assertEqual(m.result, nl.CommandResult.UNSUPPORTED)
+        self.assertEqual(len(seen), 1)
+
+    def test_command_gate_blocks_handler(self):
+        ran = []
+        p, out = self._cmd_parser(
+            on_cmd_arm=lambda f, m: ran.append(1),
+            command_gate=lambda cmd: nl.CommandResult.TEMPORARILY_REJECTED)
+        p.push(nl.encode(nl.CmdArm(req_seq=4)))
+        self.assertEqual(ran, [])
+        _, m = self._decode_ack(out[0])
+        self.assertEqual(m.result, nl.CommandResult.TEMPORARILY_REJECTED)
+
+    def test_command_gate_deferred_runs_handler(self):    # C: deferred gate has result ACCEPTED
+        ran = []
+        p, out = self._cmd_parser(
+            on_cmd_arm=lambda f, m: ran.append(1) or nl.CommandResult.DENIED,
+            command_gate=lambda cmd: nl.ACK_DEFERRED)
+        p.push(nl.encode(nl.CmdArm(req_seq=4)))
+        self.assertEqual(ran, [1])
+        _, m = self._decode_ack(out[0])
+        self.assertEqual(m.result, nl.CommandResult.DENIED)
+
+    def test_command_deferred_sends_no_ack(self):
+        p, out = self._cmd_parser(on_cmd_arm=lambda f, m: nl.ACK_DEFERRED)
+        p.push(nl.encode(nl.CmdArm(req_seq=5)))
+        self.assertEqual(out, [])
+
+    def test_no_send_means_no_ack_and_non_command_never_acked(self):
+        p = nl.Parser(nl.Handlers(on_cmd_arm=lambda f, m: None))   # send unset: legacy behaviour
+        p.push(nl.encode(nl.CmdArm(req_seq=6)))
+        p, out = self._cmd_parser(on_heartbeat=lambda f, m: None)
+        p.push(nl.encode(self.HB))
+        self.assertEqual(out, [])
+
+    def test_bad_crc_command_is_not_acked(self):
+        p, out = self._cmd_parser(on_cmd_arm=lambda f, m: None)
+        fr = bytearray(nl.encode(nl.CmdArm(req_seq=8, force=1)))
+        fr[-1] ^= 0xFF
+        p.push(bytes(fr))
+        self.assertEqual(out, [])
+
+
 class TestDialectValidation(unittest.TestCase):
     def test_clean_dialect_passes(self):
         self.assertEqual(generate.validate(DIALECT), [])
