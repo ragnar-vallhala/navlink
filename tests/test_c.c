@@ -36,6 +36,42 @@ static void count_heartbeat(void *ctx, const navlink_frame_hdr_t *hdr,
   ++*(int *)ctx;
 }
 
+static void note_crc_error(void *ctx, uint32_t msgid) {
+  (void)msgid;
+  ++((int *)ctx)[1];
+}
+static void note_unknown(void *ctx, uint32_t msgid, const uint8_t *payload,
+                         size_t len) {
+  (void)msgid;
+  (void)payload;
+  (void)len;
+  ++((int *)ctx)[2];
+}
+static void note_heartbeat(void *ctx, const navlink_frame_hdr_t *hdr,
+                           const navlink_heartbeat_t *msg) {
+  (void)hdr;
+  (void)msg;
+  ++((int *)ctx)[0];
+}
+
+/* Auto-ack capture. */
+static uint8_t g_ack_frame[NAVLINK_MAX_FRAME];
+static uint16_t g_ack_len;
+static int g_ack_calls;
+static void capture_send(void *ctx, const uint8_t *f, uint16_t n) {
+  (void)ctx;
+  memcpy(g_ack_frame, f, n);
+  g_ack_len = n;
+  g_ack_calls++;
+}
+static navlink_ack_t arm_handler(void *ctx, const navlink_frame_hdr_t *hdr,
+                                 const navlink_cmd_arm_t *msg) {
+  (void)ctx;
+  (void)hdr;
+  (void)msg;
+  return navlink_ack_result(NAVLINK_COMMAND_RESULT_DENIED);
+}
+
 int main(void) {
   /* CRC-16/MCRF4XX self-check (spec §16.1). */
   uint16_t crc = 0xFFFF;
@@ -164,6 +200,130 @@ int main(void) {
     n = navlink_heartbeat_encode(fr, &m, 0, 1, 1); /* framing is not lost */
     navlink_parser_push(&p, &h, fr, n);
     assert(hb == 2);
+  }
+
+  /* #136a: a rejected frame's false sync must not swallow the good frames inside
+   * its span. Counters: [0] heartbeats, [1] crc errors, [2] unknown msgids. */
+  {
+    int cnt[3] = {0, 0, 0};
+    navlink_handlers_t h;
+    memset(&h, 0, sizeof h);
+    h.ctx = cnt;
+    h.on_heartbeat = note_heartbeat;
+    h.on_crc_error = note_crc_error;
+    h.on_unknown = note_unknown;
+    navlink_parser_t p;
+    navlink_heartbeat_t m;
+    memset(&m, 0, sizeof m);
+    m.type = 3;
+    uint8_t hb[NAVLINK_MAX_FRAME];
+    size_t hn = navlink_heartbeat_encode(hb, &m, 0, 1, 1);
+    uint8_t in[NAVLINK_MAX_FRAME * 2];
+
+    /* False header claims a 200 B payload; its msgid bytes are junk (unknown id). */
+    navlink_parser_init(&p);
+    size_t n = 0;
+    const uint8_t fs1[4] = {0x56, 0x02, 0xC8, 0x00};
+    memcpy(in, fs1, 4);
+    n = 4;
+    memcpy(in + n, hb, hn);
+    n += hn;
+    memset(in + n, 0, 260);
+    n += 260;
+    navlink_parser_push(&p, &h, in, n);
+    assert(cnt[0] == 1);
+    assert(cnt[2] >= 1); /* the false frame reached on_unknown (unverified) */
+
+    /* False header with a KNOWN msgid (HEARTBEAT): the CRC check fails, then rescan. */
+    memset(cnt, 0, sizeof cnt);
+    navlink_parser_init(&p);
+    const uint8_t fs2[10] = {0x56, 0x02, 0x20, 0x00, 0, 1, 1, 0, 0, 0};
+    memcpy(in, fs2, 10);
+    n = 10;
+    memcpy(in + n, hb, hn);
+    n += hn;
+    memset(in + n, 0, 60);
+    n += 60;
+    navlink_parser_push(&p, &h, in, n);
+    assert(cnt[1] == 1 && cnt[0] == 1);
+
+    /* Two stacked false headers, then two real frames, fed byte-at-a-time. */
+    memset(cnt, 0, sizeof cnt);
+    navlink_parser_init(&p);
+    n = 0;
+    memcpy(in + n, fs2, 10);
+    n += 10;
+    memcpy(in + n, fs2, 10);
+    n += 10;
+    memcpy(in + n, hb, hn);
+    n += hn;
+    memcpy(in + n, hb, hn);
+    n += hn;
+    memset(in + n, 0, 80);
+    n += 80;
+    for (size_t i = 0; i < n; i++)
+      navlink_parser_push(&p, &h, in + i, 1);
+    assert(cnt[0] == 2);
+
+    /* Worst case span: header claims 255 B, frame hidden inside. */
+    memset(cnt, 0, sizeof cnt);
+    navlink_parser_init(&p);
+    const uint8_t fs3[10] = {0x56, 0x02, 0xFF, 0x00, 0, 1, 1, 0, 0, 0};
+    memcpy(in, fs3, 10);
+    n = 10;
+    memcpy(in + n, hb, hn);
+    n += hn;
+    memset(in + n, 0, 260);
+    n += 260;
+    navlink_parser_push(&p, &h, in, n);
+    assert(cnt[0] == 1);
+
+    /* §3.3 reject: an incompat-bit frame whose header hides a real frame. */
+    memset(cnt, 0, sizeof cnt);
+    navlink_parser_init(&p);
+    const uint8_t fs4[4] = {0x56, 0x02, 0x00, 0x10};
+    memcpy(in, fs4, 4);
+    memcpy(in + 4, hb, hn);
+    navlink_parser_push(&p, &h, in, 4 + hn);
+    assert(cnt[0] == 1);
+
+    /* #136b: an unknown msgid is only a diagnostic notification: never dispatched. */
+    memset(cnt, 0, sizeof cnt);
+    navlink_parser_init(&p);
+    const uint8_t unk[12] = {0x56, 0x02, 0, 0, 0, 1, 1, 0x77, 0x77, 0x77, 0, 0};
+    navlink_parser_push(&p, &h, unk, sizeof unk);
+    assert(cnt[2] == 1 && cnt[0] == 0 && cnt[1] == 0);
+    navlink_parser_push(&p, &h, hb, hn); /* and it does not block what follows */
+    assert(cnt[0] == 1);
+  }
+
+  /* Command auto-ack (C behaviour, pinned so the Python parser can match it):
+   * the ack carries the handler's result and reuses req_seq as its frame seq (#131). */
+  {
+    navlink_handlers_t h;
+    memset(&h, 0, sizeof h);
+    h.send = capture_send;
+    h.sysid = 7;
+    h.compid = 9;
+    h.on_cmd_arm = arm_handler;
+    navlink_parser_t p;
+    navlink_parser_init(&p);
+    navlink_cmd_arm_t c;
+    memset(&c, 0, sizeof c);
+    c.req_seq = 42;
+    uint8_t fr[NAVLINK_MAX_FRAME];
+    size_t n = navlink_cmd_arm_encode(fr, &c, 0, 1, 1);
+    g_ack_calls = 0;
+    navlink_parser_push(&p, &h, fr, n);
+    assert(g_ack_calls == 1);
+    assert(g_ack_frame[4] == 42 && g_ack_frame[5] == 7 && g_ack_frame[6] == 9);
+    navlink_command_ack_wire_t w;
+    navlink_command_ack_unpack(&w, g_ack_frame + NAVLINK_HEADER_LEN,
+                               g_ack_frame[2]);
+    navlink_command_ack_t k;
+    navlink_command_ack_to_aligned(&k, &w);
+    assert(k.command == NAVLINK_MSGID_CMD_ARM && k.req_seq == 42 &&
+           k.result == NAVLINK_COMMAND_RESULT_DENIED);
   }
 
   /* Emit parity table (msgid crc_extra wire_size). */

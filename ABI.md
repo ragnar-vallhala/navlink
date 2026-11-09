@@ -161,8 +161,18 @@ The frame the generated encoder/parser produce and consume:
 
 You no longer hand-write this: `navlink_<msg>_encode()` builds it, and
 `navlink_parser_push()` resyncs on `0x56`, checks the version, validates the CRC
-against the per-message `CRC_EXTRA`, and dispatches (unknown msgid ⇒ `on_unknown`,
-bad CRC ⇒ `on_crc_error`, framing preserved via `payload_len`). The test harness
+against the per-message `CRC_EXTRA`, and dispatches (bad CRC ⇒ `on_crc_error`).
+A rejected frame (bad CRC, unimplemented incompat bit, unknown msgid) is rescanned
+from the byte after its `0x56`, as MAVLink does, so a false sync cannot swallow the
+good frames inside its claimed span.
+
+An **unknown msgid** has no `CRC_EXTRA`, so its CRC cannot be checked (spec §4.3:
+undecodable, dropped). It is never dispatched or acked. `on_unknown` is a
+**diagnostic only**: its `msgid`/`payload` are **unverified** and may be line noise
+behind a false sync. The Python `Parser` behaves the same, and also auto-acks
+commands like C when `Handlers.send` is set (handler return value = result,
+`ACK_DEFERRED` to ack later, `command_gate` as in C); its ack frame `seq` reuses
+`req_seq` exactly as C does, isolated in `_ack_frame_seq` pending issue #131. The test harness
 encodes in C and Python and asserts the frames are byte-identical, and pins the
 spec §16 conformance vectors.
 
