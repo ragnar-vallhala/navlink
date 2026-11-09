@@ -67,15 +67,18 @@ add_custom_command(
           ${CMAKE_CURRENT_SOURCE_DIR}/generate.py
   COMMENT "navlink: generating the codec from dialect.json"
   VERBATIM)
-add_custom_target(navlink_codec DEPENDS ${GEN_C}/navlink_msgs.c)
+add_custom_target(navlink_generate DEPENDS ${GEN_C}/navlink_msgs.c)
 
 # The library a consumer links. navlink_parity.c is deliberately not in it: it
 # is a host-only test helper (printf of every message's bytes for the C<->Python
 # parity check) and would drag stdio into a firmware image. The target name
 # equals nav.toml [project].name, as nav requires.
 add_library(navlink STATIC ${GEN_C}/navlink_msgs.c)
+add_dependencies(navlink navlink_generate)
 target_include_directories(navlink PUBLIC $<BUILD_INTERFACE:${GEN_C}>)
 set_target_properties(navlink PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+add_library(navlink::navlink ALIAS navlink)
+
 # Under nav the board's CPU/FPU flags (-mcpu, -mfloat-abi, ...) are applied to
 # the app target only, and NavHAL's arch flags live in NavHAL's directory scope,
 # so a library that does not link `hal` is compiled with the bare toolchain
@@ -131,5 +134,5 @@ add_test(NAME pipeline
 # A target per test name so an orchestrator's "build just this case" resolves.
 # The Python tests have nothing to compile; their build is the generation.
 foreach(t ${PY_TESTS} generate pipeline)
-  add_custom_target(${t}_build DEPENDS navlink_codec)
+  add_custom_target(${t}_build DEPENDS navlink_generate)
 endforeach()
