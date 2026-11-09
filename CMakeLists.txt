@@ -76,6 +76,15 @@ add_custom_target(navlink_codec DEPENDS ${GEN_C}/navlink_msgs.c)
 add_library(navlink STATIC ${GEN_C}/navlink_msgs.c)
 target_include_directories(navlink PUBLIC $<BUILD_INTERFACE:${GEN_C}>)
 set_target_properties(navlink PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+# Under nav the board's CPU/FPU flags (-mcpu, -mfloat-abi, ...) are applied to
+# the app target only, and NavHAL's arch flags live in NavHAL's directory scope,
+# so a library that does not link `hal` is compiled with the bare toolchain
+# defaults and then fails to link ("uses VFP register arguments"). Pick the
+# board flags up from nav when it provides them. Harmless elsewhere: the
+# variable is undefined.
+if(NOT NAVLINK_TOP_LEVEL AND DEFINED NAV_BOARD_COMPILE_FLAGS)
+  target_compile_options(navlink PRIVATE ${NAV_BOARD_COMPILE_FLAGS})
+endif()
 
 if(NOT NAVLINK_TOP_LEVEL)
   return()
