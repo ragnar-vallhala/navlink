@@ -59,12 +59,18 @@ if(NAVLINK_TOP_LEVEL)
 else()
   set(NAVLINK_GEN_LANG c)
 endif()
+# Stamp holding the profile name; configure_file leaves it untouched unless the
+# content changes, so a Makefile build regenerates only when the profile does.
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/navlink_profile.stamp.in "${NAVLINK_PROFILE} ${NAVLINK_GEN_LANG}\n")
+configure_file(${CMAKE_CURRENT_BINARY_DIR}/navlink_profile.stamp.in
+               ${CMAKE_CURRENT_BINARY_DIR}/navlink_profile.stamp COPYONLY)
 add_custom_command(
   OUTPUT ${GEN_C}/navlink_msgs.h ${GEN_C}/navlink_msgs.c ${GEN_C}/navlink_parity.c
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/generate.py
           --lang ${NAVLINK_GEN_LANG} --profile ${NAVLINK_PROFILE} --out ${GEN}
   DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/dialect.json
           ${CMAKE_CURRENT_SOURCE_DIR}/generate.py
+          ${CMAKE_CURRENT_BINARY_DIR}/navlink_profile.stamp
   COMMENT "navlink: generating the codec from dialect.json"
   VERBATIM)
 add_custom_target(navlink_generate DEPENDS ${GEN_C}/navlink_msgs.c)
