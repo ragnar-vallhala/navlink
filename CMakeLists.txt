@@ -89,7 +89,10 @@ if(NOT NAVLINK_TOP_LEVEL AND DEFINED NAV_BOARD_COMPILE_FLAGS)
   target_compile_options(navlink PRIVATE ${NAV_BOARD_COMPILE_FLAGS})
 endif()
 
-if(NOT NAVLINK_TOP_LEVEL)
+# Tests build with -Werror and register with ctest, so a consumer that
+# add_subdirectory()s navlink gets them only if it asks.
+option(NAVLINK_BUILD_TESTS "Build and register navlink's test suite" ${NAVLINK_TOP_LEVEL})
+if(NOT NAVLINK_BUILD_TESTS)
   return()
 endif()
 
