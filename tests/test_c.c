@@ -72,6 +72,12 @@ static navlink_ack_t arm_handler(void *ctx, const navlink_frame_hdr_t *hdr,
   return navlink_ack_result(NAVLINK_COMMAND_RESULT_DENIED);
 }
 
+static navlink_ack_t deferred_gate(void *ctx, uint32_t cmd) {
+  (void)ctx;
+  (void)cmd;
+  return navlink_ack_deferred();
+}
+
 int main(void) {
   /* CRC-16/MCRF4XX self-check (spec §16.1). */
   uint16_t crc = 0xFFFF;
@@ -324,6 +330,30 @@ int main(void) {
     navlink_command_ack_to_aligned(&k, &w);
     assert(k.command == NAVLINK_MSGID_CMD_ARM && k.req_seq == 42 &&
            k.result == NAVLINK_COMMAND_RESULT_DENIED);
+  }
+
+  /* A command_gate returning navlink_ack_deferred() (result ACCEPTED) lets the
+   * handler run; the ack carries the handler's result (Python parity). */
+  {
+    navlink_handlers_t h;
+    memset(&h, 0, sizeof h);
+    h.send = capture_send;
+    h.on_cmd_arm = arm_handler;
+    h.command_gate = deferred_gate;
+    navlink_parser_t p;
+    navlink_parser_init(&p);
+    navlink_cmd_arm_t c;
+    memset(&c, 0, sizeof c);
+    uint8_t fr[NAVLINK_MAX_FRAME];
+    size_t n = navlink_cmd_arm_encode(fr, &c, 0, 1, 1);
+    g_ack_calls = 0;
+    navlink_parser_push(&p, &h, fr, n);
+    assert(g_ack_calls == 1);
+    navlink_command_ack_wire_t w;
+    navlink_command_ack_unpack(&w, g_ack_frame + NAVLINK_HEADER_LEN, g_ack_frame[2]);
+    navlink_command_ack_t k;
+    navlink_command_ack_to_aligned(&k, &w);
+    assert(k.result == NAVLINK_COMMAND_RESULT_DENIED);
   }
 
   /* Emit parity table (msgid crc_extra wire_size). */

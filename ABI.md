@@ -165,6 +165,7 @@ against the per-message `CRC_EXTRA`, and dispatches (bad CRC ⇒ `on_crc_error`)
 A rejected frame (bad CRC, unimplemented incompat bit, unknown msgid) is rescanned
 from the byte after its `0x56`, as MAVLink does, so a false sync cannot swallow the
 good frames inside its claimed span.
+Frames with an unknown msgid are now rescanned for resync, so valid frames from a newer-dialect peer (for example v3 msgids) get their payload rescanned.
 
 An **unknown msgid** has no `CRC_EXTRA`, so its CRC cannot be checked (spec §4.3:
 undecodable, dropped). It is never dispatched or acked. `on_unknown` is a

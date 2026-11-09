@@ -974,7 +974,7 @@ def gen_py_frame(d):
     p("        gated = False")
     p("        if h.command_gate:")
     p("            ack = _as_ack(h.command_gate(frame.msgid))")
-    p("            gated = ack is ACK_DEFERRED or ack.result != CommandResult.ACCEPTED")
+    p("            gated = ack is not ACK_DEFERRED and ack.result != CommandResult.ACCEPTED   # deferred gate = result 0 = pass-through, as in C")
     p("        if not gated:")
     p("            if cb:")
     p("                ack = _as_ack(cb(frame, msg))")

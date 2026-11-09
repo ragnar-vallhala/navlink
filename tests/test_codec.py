@@ -524,6 +524,16 @@ class TestParserRobustness(unittest.TestCase):
         _, m = self._decode_ack(out[0])
         self.assertEqual(m.result, nl.CommandResult.TEMPORARILY_REJECTED)
 
+    def test_command_gate_deferred_runs_handler(self):    # C: deferred gate has result ACCEPTED
+        ran = []
+        p, out = self._cmd_parser(
+            on_cmd_arm=lambda f, m: ran.append(1) or nl.CommandResult.DENIED,
+            command_gate=lambda cmd: nl.ACK_DEFERRED)
+        p.push(nl.encode(nl.CmdArm(req_seq=4)))
+        self.assertEqual(ran, [1])
+        _, m = self._decode_ack(out[0])
+        self.assertEqual(m.result, nl.CommandResult.DENIED)
+
     def test_command_deferred_sends_no_ack(self):
         p, out = self._cmd_parser(on_cmd_arm=lambda f, m: nl.ACK_DEFERRED)
         p.push(nl.encode(nl.CmdArm(req_seq=5)))
