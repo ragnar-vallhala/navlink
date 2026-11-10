@@ -3,15 +3,17 @@
   "id_ranges": {
     "0x0000":          "invalid / unset; never assigned",
     "0x0001-0x00FF":   "reserved",
-    "0x0100-0x01FF":   "core FC faults, assigned only in this file (0x0100 sensors, 0x0110 storage, 0x0120 estimation, 0x0130 power)",
+    "0x0100-0x01FF":   "core FC faults, assigned only in this file (0x0100 sensors, 0x0110 storage, 0x0120 estimation, 0x0130 power, 0x0140 links)",
     "0x0200-0x7FFF":   "reserved (core growth)",
     "0x8000-0xFFFF":   "vendor / experimental; core never assigns here"
   },
   "faults": [
     { "id": 256, "name": "IMU_INIT_FAILED",             "severity": "CRITICAL", "text": "IMU init failed" },
-    { "id": 257, "name": "BARO_INIT_FAILED",            "severity": "ERROR",    "text": "Baro missing or init failed" },
+    { "id": 257, "name": "BARO_INIT_FAILED",            "severity": "CRITICAL", "text": "Baro missing or init failed" },
+    { "id": 258, "name": "MAG_INIT_FAILED",             "severity": "ERROR",    "text": "Magnetometer missing or init failed" },
     { "id": 272, "name": "SD_MOUNT_FAILED",             "severity": "WARNING",  "text": "SD mount failed" },
-    { "id": 288, "name": "ESTIMATOR_NOT_READY",         "severity": "ERROR",    "text": "Estimator not ready" },
-    { "id": 304, "name": "BATTERY_SENSE_DISCONNECTED",  "severity": "ERROR",    "text": "Battery sense lead disconnected" }
+    { "id": 288, "name": "ESTIMATOR_NOT_READY",         "severity": "CRITICAL",   "text": "Estimator not ready" },
+    { "id": 304, "name": "BATTERY_SENSE_DISCONNECTED",  "severity": "ERROR",    "text": "Battery sense lead disconnected" },
+    { "id": 320, "name": "RC_RECEIVER_FAILED",          "severity": "ERROR",    "text": "RC receiver missing or lost" }
   ]
 }

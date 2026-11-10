@@ -1049,7 +1049,7 @@ Field-level detail is in the dialect (§7); this is the index.
 |-------|-----|
 | `0x0000` | invalid / unset |
 | `0x0001`–`0x00FF` | reserved |
-| `0x0100`–`0x01FF` | core FC faults (`0x0100` sensors, `0x0110` storage, `0x0120` estimation, `0x0130` power) |
+| `0x0100`–`0x01FF` | core FC faults (`0x0100` sensors, `0x0110` storage, `0x0120` estimation, `0x0130` power, `0x0140` links) |
 | `0x0200`–`0x7FFF` | reserved (core growth) |
 | `0x8000`–`0xFFFF` | vendor / experimental; core never assigns here |
 
