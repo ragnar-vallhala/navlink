@@ -685,5 +685,78 @@ class TestDialectValidation(unittest.TestCase):
         self.assertTrue(any("duplicate message name" in e for e in generate.validate(bad)))
 
 
+class TestFaultStatus(unittest.TestCase):
+    """FAULT_STATUS (msgid 11) and the shared fault table (faults.json)."""
+
+    with open(os.path.join(ROOT, "faults.json")) as _fh:
+        FAULTS = json.load(_fh)["faults"]
+
+    def test_wire_order_is_id_severity_active_text(self):
+        m = nl.FaultStatus(id=0x0102, severity=nl.Severity.ERROR,
+                           active=nl.FaultActive.RAISED, text="SD mount failed")
+        b = m.pack()
+        self.assertEqual(len(b), 54)
+        self.assertEqual(b[0:2], b"\x02\x01")             # id u16 LE first
+        self.assertEqual(b[2], 3)                          # severity ERROR
+        self.assertEqual(b[3], 1)                          # active RAISED
+        self.assertEqual(b[4:19], b"SD mount failed")      # text, then NUL padding
+        self.assertEqual(b[19:], b"\x00" * 35)
+
+    def test_encode_parse_round_trip(self):
+        got = []
+        p = nl.Parser(nl.Handlers(on_fault_status=lambda f, m: got.append((f, m))))
+        sent = nl.FaultStatus(id=nl.FaultId.IMU_INIT_FAILED, severity=nl.Severity.CRITICAL,
+                              active=nl.FaultActive.CLEARED, text="IMU init failed")
+        p.push(nl.encode(sent, seq=9, sysid=1, compid=1))
+        self.assertEqual(len(got), 1)
+        hdr, m = got[0]
+        self.assertEqual(hdr.msgid, 11)
+        self.assertEqual((m.id, m.severity, m.active, m.text),
+                         (256, 2, 0, "IMU init failed"))
+
+    def test_msgid_and_enum(self):
+        self.assertEqual(nl.FaultStatus.MSGID, 11)
+        self.assertEqual(nl.FaultActive.CLEARED, 0)
+        self.assertEqual(nl.FaultActive.RAISED, 1)
+
+    def test_fault_table_validates_against_generator(self):
+        self.assertEqual(generate.validate_faults({"faults": self.FAULTS}, DIALECT), [])
+
+    def test_every_fault_text_fits_the_wire_field(self):
+        for f in self.FAULTS:
+            with self.subTest(fault=f["name"]):
+                self.assertLessEqual(len(f["text"].encode("utf-8")), 49)
+                # ...and survives a real pack/unpack unchanged
+                m = nl.FaultStatus(id=f["id"], text=f["text"])
+                self.assertEqual(nl.FaultStatus.unpack(m.pack()).text, f["text"])
+
+    def test_fault_ids_and_names_unique(self):
+        ids = [f["id"] for f in self.FAULTS]
+        names = [f["name"] for f in self.FAULTS]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertEqual(len(names), len(set(names)))
+
+    def test_generated_python_table_matches_file(self):
+        self.assertEqual(set(nl.FAULTS), {f["id"] for f in self.FAULTS})
+        for f in self.FAULTS:
+            name, sev, text = nl.FAULTS[f["id"]]
+            self.assertEqual((name, text), (f["name"], f["text"]))
+            self.assertEqual(sev, nl.Severity[f["severity"]])
+            self.assertEqual(nl.FaultId[f["name"]], f["id"])
+
+    def test_validator_rejects_bad_tables(self):
+        ok = dict(id=0x0100, name="A", severity="ERROR", text="x")
+        def errs(*fs):
+            return generate.validate_faults({"faults": list(fs)}, DIALECT)
+        self.assertEqual(errs(ok), [])
+        self.assertTrue(any("max 49" in e for e in errs(dict(ok, text="x" * 50))))
+        self.assertTrue(any("duplicate fault id" in e
+                            for e in errs(ok, dict(ok, name="B"))))
+        self.assertTrue(any("duplicate fault name" in e
+                            for e in errs(ok, dict(ok, id=0x0101))))
+        self.assertTrue(any("outside the assignable" in e for e in errs(dict(ok, id=5))))
+        self.assertTrue(any("severity" in e for e in errs(dict(ok, severity="LOUD"))))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

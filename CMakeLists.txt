@@ -69,6 +69,7 @@ add_custom_command(
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/generate.py
           --lang ${NAVLINK_GEN_LANG} --profile ${NAVLINK_PROFILE} --out ${GEN}
   DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/dialect.json
+          ${CMAKE_CURRENT_SOURCE_DIR}/faults.json
           ${CMAKE_CURRENT_SOURCE_DIR}/generate.py
           ${CMAKE_CURRENT_BINARY_DIR}/navlink_profile.stamp
   COMMENT "navlink: generating the codec from dialect.json"

@@ -1025,6 +1025,38 @@ Field-level detail is in the dialect (§7); this is the index.
 | 8 | `PING` | seq, target |
 | 9 | `CAPABILITIES` | protocol_version, incompat_supported, msgid_ranges, sec_modes, key_id |
 | 10 | `TIME_SYNC` | role, seq, t1_gcs_tx, t2_fc_rx, t3_fc_tx, commanded_offset_ms (one role-discriminated round-trip message, §10) |
+| 11 | `FAULT_STATUS` | id:u16, severity, active, text[50] — one raised/cleared fault per frame (§14.1.1) |
+
+#### 14.1.1 FAULT_STATUS and the fault table
+
+`FAULT_STATUS` (msgid 11, 54 bytes) reports one latched fault per frame:
+`id:u16`, `severity:u8` (the `severity` enum, as `STATUSTEXT.severity`),
+`active:u8` (`1` = raised, `0` = cleared; enum `fault_active`) and `text[50]`
+(NUL-terminated and NUL-padded like `STATUSTEXT.text`, so at most 49 characters).
+
+- `id` is a **stable fault key**: the text for an id is fixed and lives in the
+  shared table `faults.json`. This differs from `STATUSTEXT.id`, which only
+  groups the chunks of one message.
+- Every raised fault is re-sent every 5 s while disarmed, and once on the first
+  GCS heartbeat after a link gap, so a GCS that connects late learns the full set.
+- A clear is sent once with `active = 0`.
+- msgid 11 is free in the core/system block: 1 is `SYS_STATUS`, 6 and 7 are
+  reserved (design journal §10.1), and 11 is the first id after `TIME_SYNC`.
+
+`faults.json` fault-id ranges (u16, assigned only in that file):
+
+| Range | Use |
+|-------|-----|
+| `0x0000` | invalid / unset |
+| `0x0001`–`0x00FF` | reserved |
+| `0x0100`–`0x01FF` | core FC faults (`0x0100` sensors, `0x0110` storage, `0x0120` estimation, `0x0130` power) |
+| `0x0200`–`0x7FFF` | reserved (core growth) |
+| `0x8000`–`0xFFFF` | vendor / experimental; core never assigns here |
+
+`generate.py` validates the table (unique ids and names, assignable range,
+severity in the enum, text ≤ 49 bytes) and emits it with the codec: C
+`navlink_fault_e`, `navlink_fault_table[]`, `navlink_fault_info()`; Python
+`FaultId`, `FAULTS`.
 
 ### 14.2 Sensors / state (1024–2047)
 
