@@ -692,12 +692,12 @@ class TestFaultStatus(unittest.TestCase):
         FAULTS = json.load(_fh)["faults"]
 
     def test_wire_order_is_id_severity_active_text(self):
-        m = nl.FaultStatus(id=0x0102, severity=nl.Severity.ERROR,
+        m = nl.FaultStatus(id=0x0110, severity=nl.Severity.WARNING,
                            active=nl.FaultActive.RAISED, text="SD mount failed")
         b = m.pack()
         self.assertEqual(len(b), 54)
-        self.assertEqual(b[0:2], b"\x02\x01")             # id u16 LE first
-        self.assertEqual(b[2], 3)                          # severity ERROR
+        self.assertEqual(b[0:2], b"\x10\x01")             # id u16 LE first (0x0110)
+        self.assertEqual(b[2], 4)                          # severity WARNING
         self.assertEqual(b[3], 1)                          # active RAISED
         self.assertEqual(b[4:19], b"SD mount failed")      # text, then NUL padding
         self.assertEqual(b[19:], b"\x00" * 35)
@@ -756,6 +756,9 @@ class TestFaultStatus(unittest.TestCase):
                             for e in errs(ok, dict(ok, id=0x0101))))
         self.assertTrue(any("outside the assignable" in e for e in errs(dict(ok, id=5))))
         self.assertTrue(any("severity" in e for e in errs(dict(ok, severity="LOUD"))))
+        # The C table writes the text as a plain string, so it must be ASCII.
+        self.assertTrue(any("ASCII" in e for e in errs(dict(ok, text="Baro \u00e9chec"))))
+        self.assertTrue(any("ASCII" in e for e in errs(dict(ok, text="bad\ttext"))))
 
 
 if __name__ == "__main__":

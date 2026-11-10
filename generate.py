@@ -267,6 +267,8 @@ def validate_faults(ft, d):
         text = f.get("text")
         if not isinstance(text, str) or not text:
             errs.append(f"fault {n}: text missing")
+        elif not all(0x20 <= ord(c) < 0x7F for c in text):
+            errs.append(f"fault {n}: text must be printable ASCII (it is emitted as a plain C string)")
         elif len(text.encode("utf-8")) > FAULT_TEXT_MAX:
             errs.append(f"fault {n}: text is {len(text.encode('utf-8'))} bytes, "
                         f"max {FAULT_TEXT_MAX} (char[50] with NUL)")
