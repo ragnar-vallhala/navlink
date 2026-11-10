@@ -13,6 +13,7 @@ the generated code (encoder, parser, handler tables).
 | File | What |
 |------|------|
 | `dialect.json` | the message catalog — **edit this** to add/change messages (spec §7) |
+| `faults.json` | the shared fault table behind `FAULT_STATUS.id` (spec §14.1.1); validated by `generate.py` |
 | `dialect.schema.json` | JSON Schema the dialect must validate against (spec §7.4) |
 | `generate.py` | the generator (stdlib only, no deps) |
 | `ABI.md` | the contract: generated API + ABI rules for FC firmware + GCS |

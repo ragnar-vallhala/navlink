@@ -78,6 +78,18 @@ static navlink_ack_t deferred_gate(void *ctx, uint32_t cmd) {
   return navlink_ack_deferred();
 }
 
+struct fault_cap {
+  int n;
+  navlink_fault_status_t m;
+};
+static void fault_cb(void *ctx, const navlink_frame_hdr_t *hdr,
+                     const navlink_fault_status_t *msg) {
+  struct fault_cap *c = ctx;
+  (void)hdr;
+  c->n++;
+  c->m = *msg;
+}
+
 int main(void) {
   /* CRC-16/MCRF4XX self-check (spec §16.1). */
   uint16_t crc = 0xFFFF;
@@ -354,6 +366,48 @@ int main(void) {
     navlink_command_ack_t k;
     navlink_command_ack_to_aligned(&k, &w);
     assert(k.result == NAVLINK_COMMAND_RESULT_DENIED);
+  }
+
+  /* FAULT_STATUS: field order == wire order, frame round-trip, fault table. */
+  {
+    navlink_fault_status_t m;
+    memset(&m, 0, sizeof m);
+    m.id = NAVLINK_FAULT_SD_MOUNT_FAILED;
+    m.severity = NAVLINK_SEVERITY_ERROR;
+    m.active = NAVLINK_FAULT_ACTIVE_RAISED;
+    strcpy(m.text, "SD mount failed");
+    navlink_fault_status_wire_t w;
+    navlink_fault_status_from_aligned(&w, &m);
+    uint8_t pl[NAVLINK_WIRE_SIZE_FAULT_STATUS];
+    memset(pl, 0xAA, sizeof pl);
+    navlink_fault_status_pack(pl, &w);
+    assert(NAVLINK_MSGID_FAULT_STATUS == 11u);
+    assert(NAVLINK_WIRE_SIZE_FAULT_STATUS == 54u);
+    assert(pl[0] == 0x10 && pl[1] == 0x01); /* id u16 LE */
+    assert(pl[2] == 3 && pl[3] == 1);       /* severity, active */
+    assert(memcmp(pl + 4, "SD mount failed", 16) == 0); /* incl. the NUL */
+    assert(pl[19] == 0 && pl[53] == 0);
+    uint8_t fr[NAVLINK_MAX_FRAME];
+    size_t n = navlink_fault_status_encode(fr, &m, 3, 1, 1);
+    struct fault_cap cap = { 0, { 0 } };
+    navlink_handlers_t h;
+    memset(&h, 0, sizeof h);
+    h.ctx = &cap;
+    h.on_fault_status = fault_cb;
+    navlink_parser_t p;
+    navlink_parser_init(&p);
+    navlink_parser_push(&p, &h, fr, n);
+    assert(cap.n == 1);
+    assert(cap.m.id == 0x0110 && cap.m.active == 1);
+    assert(strcmp(cap.m.text, "SD mount failed") == 0);
+    for (size_t i = 0; i < NAVLINK_FAULT_COUNT; i++) {
+      const navlink_fault_info_t *f = &navlink_fault_table[i];
+      assert(strlen(f->text) <= 49);
+      assert(navlink_fault_info(f->id) == f);
+      for (size_t j = i + 1; j < NAVLINK_FAULT_COUNT; j++)
+        assert(navlink_fault_table[j].id != f->id);
+    }
+    assert(navlink_fault_info(0) == NULL);
   }
 
   /* Emit parity table (msgid crc_extra wire_size). */

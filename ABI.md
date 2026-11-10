@@ -331,6 +331,13 @@ The autotuner and analysis tools import the same module; for ad-hoc decoding
 - Change `dialect.json` → run `generate.py` → run `tests/run_tests.py` (it
   cross-checks C and Python byte-for-byte and pins the spec §16 vectors).
 - Add fields only at the end; new growth fields are `extension: true`.
+- Adding a **new message** is additive: it takes a fresh msgid and needs no
+  change to the frame version byte, the dialect `version` (the schema pins it to
+  2, the wire version) or any existing message's `CRC_EXTRA`. Old peers drop the
+  unknown msgid (see below). `[abi] abi_version` in `nav.toml` and the release
+  version are not bumped by a feature PR; that is done in the release PR.
+- `faults.json` (ids for `FAULT_STATUS`) is part of the same contract: fault ids
+  are forever, like msgids, and the text for an id never changes.
 - A frame whose `msgid` is unknown, or whose `CRC_EXTRA` doesn't match, is
   dropped — handle that as "ignore", not "error".
 - Advertise capabilities once at connect (`HEARTBEAT.capabilities` /
