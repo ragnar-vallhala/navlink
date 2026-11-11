@@ -1,6 +1,6 @@
 [project]
 name        = "navlink"
-version     = "2.2.1"
+version     = "2.4.0"
 type        = "library"
 license     = "Apache-2.0"
 description = "NavLink v2 telemetry/command wire protocol: C codec generated from dialect.json at build time."
