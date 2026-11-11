@@ -230,6 +230,51 @@ def validate(d):
     return errs
 
 
+# ── fault table (faults.json, beside the dialect; FAULT_STATUS.id keys) ─────────
+FAULT_TEXT_MAX = 49          # FAULT_STATUS.text is char[50]: 49 + the terminating NUL
+
+
+def load_faults(dialect_path):
+    """The fault table next to the dialect, or None when there is none."""
+    path = os.path.join(os.path.dirname(os.path.abspath(dialect_path)), "faults.json")
+    if not os.path.exists(path):
+        return None
+    with open(path) as fh:
+        return json.load(fh)
+
+
+def validate_faults(ft, d):
+    errs = []
+    sev = {e["name"] for e in d.get("enums", {}).get("severity", {}).get("entries", [])}
+    ids, names = {}, {}
+    for f in ft.get("faults", []):
+        n = f.get("name", "?")
+        fid = f.get("id")
+        if not isinstance(fid, int) or isinstance(fid, bool) or not (0x0100 <= fid <= 0x01FF
+                                                                   or 0x8000 <= fid <= 0xFFFF):
+            errs.append(f"fault {n}: id {fid!r} outside the assignable ranges "
+                        f"0x0100-0x01FF / 0x8000-0xFFFF")
+        if fid in ids:
+            errs.append(f"duplicate fault id {fid}: {n} vs {ids[fid]}")
+        ids[fid] = n
+        if n in names:
+            errs.append(f"duplicate fault name {n}")
+        names[n] = True
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]*", str(n)):
+            errs.append(f"fault name {n!r} must match [A-Z][A-Z0-9_]*")
+        if f.get("severity") not in sev:
+            errs.append(f"fault {n}: severity {f.get('severity')!r} is not in the severity enum")
+        text = f.get("text")
+        if not isinstance(text, str) or not text:
+            errs.append(f"fault {n}: text missing")
+        elif not all(0x20 <= ord(c) < 0x7F for c in text):
+            errs.append(f"fault {n}: text must be printable ASCII (it is emitted as a plain C string)")
+        elif len(text.encode("utf-8")) > FAULT_TEXT_MAX:
+            errs.append(f"fault {n}: text is {len(text.encode('utf-8'))} bytes, "
+                        f"max {FAULT_TEXT_MAX} (char[50] with NUL)")
+    return errs
+
+
 # ── naming helpers ────────────────────────────────────────────────────────────
 def c_msg_prefix(name):
     return "navlink_" + name.lower()
@@ -302,6 +347,24 @@ def gen_c_header(d):
         p(f"void   {pre}_unpack({pre}_wire_t *w, const uint8_t *buf, size_t len);")
         p(f"void   {pre}_to_aligned({pre}_t *a, const {pre}_wire_t *w);")
         p(f"void   {pre}_from_aligned({pre}_wire_t *w, const {pre}_t *a);")
+        p("")
+    # fault table (faults.json): FAULT_STATUS.id keys with fixed text
+    faults = d.get("faults")
+    if faults:
+        p("/* Fault ids for FAULT_STATUS.id (faults.json). Text per id is fixed. */")
+        p("typedef enum {")
+        for f in faults:
+            p(f"    NAVLINK_FAULT_{f['name']} = {f['id']},")
+        p("} navlink_fault_e;")
+        p("typedef struct {")
+        p("    uint16_t id;")
+        p("    uint8_t  severity;     /* navlink_severity_e default */")
+        p("    const char *name;")
+        p("    const char *text;      /* <= 49 chars, fits FAULT_STATUS.text[50] */")
+        p("} navlink_fault_info_t;")
+        p(f"#define NAVLINK_FAULT_COUNT {len(faults)}u")
+        p("extern const navlink_fault_info_t navlink_fault_table[NAVLINK_FAULT_COUNT];")
+        p("const navlink_fault_info_t *navlink_fault_info(uint16_t id);  /* NULL if unknown */")
         p("")
     # dispatch table
     p("typedef struct {")
@@ -376,6 +439,21 @@ def gen_c_source(d):
         p(f'    {{ {m["msgid"]}u, {wire_size(m)}u, {crc_extra(m)}u, {1 if requires_ack(m) else 0}u, "{m["name"]}" }},')
     p("};")
     p("")
+    faults = d.get("faults")
+    if faults:
+        p("const navlink_fault_info_t navlink_fault_table[NAVLINK_FAULT_COUNT] = {")
+        for f in faults:
+            sev = next(e["value"] for e in d["enums"]["severity"]["entries"]
+                       if e["name"] == f["severity"])
+            p(f'    {{ {f["id"]}u, {sev}u, "{f["name"]}", {json.dumps(f["text"])} }},')
+        p("};")
+        p("")
+        p("const navlink_fault_info_t *navlink_fault_info(uint16_t id) {")
+        p("    for (size_t i = 0; i < NAVLINK_FAULT_COUNT; i++)")
+        p("        if (navlink_fault_table[i].id == id) return &navlink_fault_table[i];")
+        p("    return NULL;")
+        p("}")
+        p("")
     p("const navlink_msg_info_t *navlink_msg_info(uint32_t msgid) {")
     p("    size_t lo = 0, hi = NAVLINK_MSG_COUNT;")
     p("    while (lo < hi) {")
@@ -809,6 +887,21 @@ def gen_py(d):
         p(f"    {m['msgid']}: \"on_{m['name'].lower()}\",")
     p("}")
     p("")
+    faults = d.get("faults")
+    if faults:
+        p("class FaultId(IntEnum):")
+        p('    """Fault ids for FAULT_STATUS.id (faults.json)."""')
+        for f in faults:
+            p(f"    {f['name']} = {f['id']}")
+        p("")
+        p("# id -> (name, default severity, fixed text)")
+        p("FAULTS = {")
+        for f in faults:
+            sev = next(e["value"] for e in d["enums"]["severity"]["entries"]
+                       if e["name"] == f["severity"])
+            p(f"    {f['id']}: ({f['name']!r}, {sev}, {f['text']!r}),")
+        p("}")
+        p("")
     p(gen_py_frame(d))
     return "\n".join(L) + "\n"
 
@@ -1274,6 +1367,10 @@ def main():
         d["messages"] = [m for m in d["messages"] if not m.get("test")]
 
     errs = validate(d)
+    ft = load_faults(args.dialect)
+    if ft is not None:
+        errs += validate_faults(ft, d)
+        d["faults"] = ft["faults"]
     if errs:
         print("dialect validation failed:", file=sys.stderr)
         for e in errs:

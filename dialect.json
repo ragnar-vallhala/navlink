@@ -126,6 +126,13 @@
         { "name": "INFO",      "value": 6 }, { "name": "DEBUG",  "value": 7 }
       ]
     },
+    "fault_active": {
+      "section": "system",
+      "doc": "FAULT_STATUS.active: 1 = the fault is raised, 0 = it has cleared.",
+      "entries": [
+        { "name": "CLEARED", "value": 0 }, { "name": "RAISED", "value": 1 }
+      ]
+    },
     "calib_step": {
       "section": "flight.calibration",
       "doc": "CALIBRATION_STATUS.step — progress update or operator instruction (spec §14.8).",
@@ -231,6 +238,16 @@
         { "index": 1, "name": "text",      "type": "char", "len": 50 },
         { "index": 2, "name": "id",        "type": "u16",  "doc": "groups multi-chunk messages" },
         { "index": 3, "name": "chunk_seq", "type": "u8" }
+      ]
+    },
+    {
+      "msgid": 11, "name": "FAULT_STATUS", "section": "system",
+      "doc": "One latched fault, raised or cleared (one frame per fault). `id` is a stable fault key from faults.json: the text for an id is fixed, unlike STATUSTEXT.id, which only groups the chunks of one message. The FC re-sends every raised fault every 5 s while disarmed and once on the first GCS heartbeat after a link gap; a clear is sent once with active=0. `text` is NUL-terminated and NUL-padded like STATUSTEXT.text.",
+      "fields": [
+        { "index": 0, "name": "id",       "type": "u16",  "doc": "fault key, see faults.json (spec 14.1)" },
+        { "index": 1, "name": "severity", "type": "u8",   "enum": "severity" },
+        { "index": 2, "name": "active",   "type": "u8",   "enum": "fault_active" },
+        { "index": 3, "name": "text",     "type": "char", "len": 50 }
       ]
     },
     {
