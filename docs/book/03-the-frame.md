@@ -20,7 +20,7 @@ and a trailer. For ordinary frames the trailer is a 2-byte CRC.
    6      1    compid           sender component id
    7      3    msgid            message type, 24 bits
   10      N    payload
- 10+N     2    CRC              CRC-16/MCRF4XX seeded with CRC_EXTRA (chapter 4)
+ 10+N     2    CRC              CRC-16/MCRF4XX, CRC_EXTRA folded in last (chapter 4)
 ```
 
 The header is a fixed 10 bytes. There is no timestamp in the header. Time lives
