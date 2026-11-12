@@ -36,7 +36,7 @@ structure: the message name, then for each non-extension field, in index order,
 its wire type name, its field name, and its array length if it is an array. The
 two bytes of the resulting CRC are folded together into one.
 
-Because the receiver seeds its CRC with its own CRC_EXTRA for that msgid, the
+Because the receiver folds its own CRC_EXTRA for that msgid into the CRC (as the last byte, after the payload), the
 two ends must agree on the layout for the checksum to pass. If a field is added,
 removed, retyped or renamed on one side only, the values differ and the frame
 fails its CRC. A layout mismatch is therefore **detected and dropped**, not
