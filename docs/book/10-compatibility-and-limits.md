@@ -29,8 +29,11 @@ disagreement between two peers is caught by the CRC (chapter 4).
   Treat that as "ignore", not as an error.
 - Advertise capabilities at connect and do not rely on an incompat feature a peer
   has not advertised.
-- CI regenerates the codecs and fails if the checked-in output differs, which
-  catches hand edits.
+- Generated output is not committed (`generated/` is build output), so there is
+  no drift check in CI; its test suite checks directly that the generator is
+  deterministic. `ABI.md` section 8 still says to commit the regenerated trees
+  and that CI fails on a difference. That line is out of date; this book follows
+  the CI file and `.gitignore`.
 
 ## 10.4 Things not to do
 
