@@ -582,8 +582,9 @@ class TestDialectValidation(unittest.TestCase):
     def test_messages_are_in_msgid_order(self):             # #137
         # navlink_handlers_t has one on_<msg> slot per message, in dialect order, so
         # a message inserted out of order silently moves every later slot (a C ABI
-        # change). Keep dialect.json sorted by msgid: new messages go at the end of
-        # their numeric position, and the next free id is the last one plus one.
+        # change). Keep dialect.json sorted by msgid. This test only enforces the order: a
+        # new message must also take a msgid ABOVE the current maximum, or it still
+        # shifts the slots after it (ABI.md section 10).
         ids = [m["msgid"] for m in DIALECT["messages"]]
         self.assertEqual(ids, sorted(ids), "dialect.json messages must be in msgid order")
 

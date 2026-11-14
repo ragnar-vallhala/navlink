@@ -360,9 +360,9 @@ The autotuner and analysis tools import the same module; for ad-hoc decoding
   zeros; `unpack` restores them.
 - Don't reuse a `(sysid, compid, seq)` for two secured frames (spec §3.5, §11.4).
 
-## 10. Migrating to the v3 ABI
+## 10. Migrating to navlink 3.0 (ABI change)
 
-Two source-incompatible changes to `navlink_handlers_t` (and the Python
+Two source-incompatible changes (navlink 3.0) to `navlink_handlers_t` (and the Python
 `Handlers`) ship together, so consumers migrate once. The frame format, every
 `msgid` and every `CRC_EXTRA` are **unchanged**: a v2 peer and a v3 peer still
 parse each other's frames. What changes on the wire is only the `seq` byte of
@@ -380,6 +380,11 @@ would reuse an AEAD nonce. `navlink_handlers_t` has a new slot,
 - Return the next value of **the same counter you pass to every `*_encode()`
   call** for your own frames (see the `next_seq`/`tx_seq` pair in §5). A second,
   separate counter for acks would leave gaps in what the receiver sees.
+- **Concurrency.** `next_seq` runs on whichever task calls `navlink_parser_push()`
+  (acks are emitted while parsing), while telemetry is usually encoded on another
+  task. A shared plain `uint8_t` can race there (a duplicated or skipped seq), so
+  make the counter atomic, or emit acks and telemetry from one context. The §5
+  example (`tx_seq++`) is single-task only.
 - `req_seq` still correlates request and ack: it is in the ack's payload, as before.
 - `next_seq` unset (NULL / `None`) keeps the v2 behaviour (ack seq = `req_seq`).
   It exists so code that has not migrated still builds and runs; it is not a
@@ -390,8 +395,10 @@ would reuse an AEAD nonce. `navlink_handlers_t` has a new slot,
 (for example `on_fault_status`, `on_xfer_sack`, `on_battery`, `on_cmd_set_d_lpf`,
 `on_fs_delete`), and the new `next_seq` slot sits ahead of all of them, so every
 slot's offset in the struct changes: this is a C ABI change. From now on
-`tests/test_codec.py` fails if a message is out of order, so a new message goes
-in numeric position and cannot move later slots again.
+`tests/test_codec.py` fails if a message is out of order, but that only enforces
+the order: a new message with a msgid **below** the current maximum still shifts
+every later slot. Give new messages a msgid above the current maximum (they then
+append at the end, and no existing slot moves), or accept another ABI change.
 
 **What a consumer must do** (vayu, navigator; vaios does not use the handlers):
 
