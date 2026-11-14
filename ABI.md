@@ -107,6 +107,9 @@ size_t navlink_frame(uint8_t *out, uint32_t msgid, const uint8_t *payload, size_
 typedef struct { uint32_t msgid; uint8_t seq, sysid, compid, incompat_flags; } navlink_frame_hdr_t;
 typedef struct navlink_handlers {                /* populate the slots you want */
     void *ctx;
+    void (*send)(void *ctx, const uint8_t *frame, uint16_t len);   /* emits COMMAND_ACK */
+    uint8_t sysid, compid;
+    uint8_t (*next_seq)(void *ctx);              /* frame seq of each emitted ACK: your own counter */
     void (*on_foo)(void *ctx, const navlink_frame_hdr_t *hdr, const navlink_foo_t *msg);
     /* ...one per message... */
     void (*on_unknown)(void *ctx, uint32_t msgid, const uint8_t *payload, size_t len);
@@ -172,8 +175,8 @@ undecodable, dropped). It is never dispatched or acked. `on_unknown` is a
 **diagnostic only**: its `msgid`/`payload` are **unverified** and may be line noise
 behind a false sync. The Python `Parser` behaves the same, and also auto-acks
 commands like C when `Handlers.send` is set (handler return value = result,
-`ACK_DEFERRED` to ack later, `command_gate` as in C); its ack frame `seq` reuses
-`req_seq` exactly as C does, isolated in `_ack_frame_seq` pending issue #131. The test harness
+`ACK_DEFERRED` to ack later, `command_gate` as in C); its ack frame `seq` comes from
+`Handlers.next_seq` exactly as in C (see §10). The test harness
 encodes in C and Python and asserts the frames are byte-identical, and pins the
 spec §16 conformance vectors.
 
@@ -211,9 +214,13 @@ static navlink_ack_t on_cmd_set_pid(void *ctx, const navlink_frame_hdr_t *hdr,
 
 static void uart_send(void *ctx, const uint8_t *frame, uint16_t len) { uart_write(frame, len); }
 
+static uint8_t tx_seq;                                   /* THE per-(sysid,compid) counter: */
+static uint8_t next_seq(void *ctx) { return tx_seq++; }  /* ACKs and telemetry both take from it */
+
 static const navlink_handlers_t HANDLERS = {
     .send = uart_send,                    /* required once any command slot is set: */
     .sysid = FC_SYSID, .compid = FC_COMPID,   /* without it every ACK is silently dropped */
+    .next_seq = next_seq,                 /* ACK frame seq = your own counter (spec 3.5) */
     .on_cmd_set_pid = on_cmd_set_pid,
     /* .on_cmd_arm = ..., .on_time_sync = ..., etc.  An unset telemetry slot is
      * ignored; an unset COMMAND slot is answered UNSUPPORTED automatically. */
@@ -233,7 +240,7 @@ void comm_rx_bytes(const uint8_t *buf, size_t n) {       /* call from your UART 
 void emit_attitude(float roll, float pitch, float yaw) {
     navlink_attitude_euler_t a = { .roll = roll, .pitch = pitch, .yaw = yaw };
     uint8_t frame[NAVLINK_MAX_FRAME];
-    size_t n = navlink_attitude_euler_encode(frame, &a, tx_seq++, FC_SYSID, FC_COMPID);
+    size_t n = navlink_attitude_euler_encode(frame, &a, next_seq(NULL), FC_SYSID, FC_COMPID);
     uart_write(frame, n);
 }
 ```
@@ -352,3 +359,60 @@ The autotuner and analysis tools import the same module; for ad-hoc decoding
 - Don't assume `payload_len` equals `WIRE_SIZE` — senders truncate trailing
   zeros; `unpack` restores them.
 - Don't reuse a `(sysid, compid, seq)` for two secured frames (spec §3.5, §11.4).
+
+## 10. Migrating to navlink 3.0 (ABI change)
+
+Two source-incompatible changes (navlink 3.0) to `navlink_handlers_t` (and the Python
+`Handlers`) ship together, so consumers migrate once. The frame format, every
+`msgid` and every `CRC_EXTRA` are **unchanged**: a v2 peer and a v3 peer still
+parse each other's frames. What changes on the wire is only the `seq` byte of
+the `COMMAND_ACK` frames a link emits.
+
+**1. `COMMAND_ACK` gets its own frame seq (#131, spec §3.5).** Until now the
+auto-emitted ack carried the request's `req_seq` as its frame `seq`. The frame
+`seq` is the sender's own per-`(sysid, compid)` counter; reusing `req_seq`
+corrupts the receiver's loss estimate and, once secured frames land (§11.4),
+would reuse an AEAD nonce. `navlink_handlers_t` has a new slot,
+`uint8_t (*next_seq)(void *ctx)`, called once per emitted ack
+(`navlink_command_ack_send()` included, so deferred acks use it too). Python:
+`Handlers(next_seq=callable)`.
+
+- Return the next value of **the same counter you pass to every `*_encode()`
+  call** for your own frames (see the `next_seq`/`tx_seq` pair in §5). A second,
+  separate counter for acks would leave gaps in what the receiver sees.
+- **Concurrency.** `next_seq` runs on whichever task calls `navlink_parser_push()`
+  (acks are emitted while parsing), while telemetry is usually encoded on another
+  task. A shared plain `uint8_t` can race there (a duplicated or skipped seq), so
+  make the counter atomic, or emit acks and telemetry from one context. The §5
+  example (`tx_seq++`) is single-task only.
+- `req_seq` still correlates request and ack: it is in the ack's payload, as before.
+- `next_seq` unset (NULL / `None`) keeps the v2 behaviour (ack seq = `req_seq`).
+  It exists so code that has not migrated still builds and runs; it is not a
+  supported configuration. Wire `next_seq` on every link that has `send` set.
+
+**2. `dialect.json` is sorted by `msgid` (#137).** `navlink_handlers_t` has one
+`on_<msg>` slot per message in dialect order. Sorting moves 23 of the 57 slots
+(for example `on_fault_status`, `on_xfer_sack`, `on_battery`, `on_cmd_set_d_lpf`,
+`on_fs_delete`), and the new `next_seq` slot sits ahead of all of them, so every
+slot's offset in the struct changes: this is a C ABI change. From now on
+`tests/test_codec.py` fails if a message is out of order, but that only enforces
+the order: a new message with a msgid **below** the current maximum still shifts
+every later slot. Give new messages a msgid above the current maximum (they then
+append at the end, and no existing slot moves), or accept another ABI change.
+
+**What a consumer must do** (vayu, navigator; vaios does not use the handlers):
+
+1. Rebuild against the new navlink; every translation unit that includes
+   `navlink_msgs.h` has to be recompiled (the struct layout changed).
+2. Initialise `navlink_handlers_t` with **designated initialisers**
+   (`.on_xyz = ...`, as in §5). A positional initialiser silently binds the
+   wrong slots. Zero-initialise the struct first when filling it at run time.
+3. Add `.next_seq` and route your own TX through the same counter (§5).
+4. Python: construct `Handlers` with keyword arguments only, and pass `next_seq`.
+5. A GCS that estimates loss from `seq` gaps now receives ack frames in the same
+   sequence as the rest of the peer's frames, which is what its estimate assumes.
+
+The release PR bumps `[project] version` and `[abi] abi_version` in `nav.toml`
+(§8): proposed here as navlink 3.0.0 and `abi_version = 2`, for the release
+owner to confirm. This change does not touch either, and no pin of a
+downstream repo moves with it.

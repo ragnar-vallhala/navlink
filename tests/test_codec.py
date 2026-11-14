@@ -498,7 +498,28 @@ class TestParserRobustness(unittest.TestCase):
         f, m = self._decode_ack(out[0])
         self.assertEqual((m.command, m.req_seq, m.result), (nl.CmdArm.MSGID, 42, nl.CommandResult.ACCEPTED))
         self.assertEqual((f.sysid, f.compid), (7, 9))
-        self.assertEqual(f.seq, 42)       # byte parity with C, which reuses req_seq (#131)
+        self.assertEqual(f.seq, 42)       # legacy fallback (no next_seq wired): C reuses req_seq too
+
+    def test_command_autoack_uses_next_seq(self):
+        # #131 / spec 3.5: the ACK's frame seq is the sender's own counter, shared
+        # with its other frames, never the request's req_seq. Mirrors test_c.c.
+        tx = [253]
+        def next_seq():
+            v = tx[0]; tx[0] = (tx[0] + 1) % 256; return v
+        out = []
+        p = nl.Parser(nl.Handlers(on_cmd_arm=lambda f, m: None, send=out.append,
+                                  sysid=7, compid=9, next_seq=next_seq))
+        p.push(nl.encode(nl.CmdArm(req_seq=42)))
+        f, m = self._decode_ack(out[0])
+        self.assertEqual((f.seq, m.req_seq), (253, 42))     # not 42
+        self.assertEqual(next_seq(), 254)                    # app telemetry shares the counter
+        p.push(nl.encode(nl.CmdArm(req_seq=42)))             # same req_seq, seq still advances
+        self.assertEqual(self._decode_ack(out[1])[0].seq, 255)
+        p.push(nl.encode(nl.CmdArm(req_seq=1)))
+        self.assertEqual(self._decode_ack(out[2])[0].seq, 0)  # wrap
+        h = nl.Handlers(send=out.append, sysid=7, compid=9, next_seq=next_seq)
+        nl.command_ack_send(h, nl.CmdArm.MSGID, 99, nl.Ack(nl.CommandResult.ACCEPTED, 0, 0))
+        self.assertEqual(self._decode_ack(out[3])[0].seq, 1)  # deferred path
 
     def test_command_autoack_handler_result(self):
         p, out = self._cmd_parser(on_cmd_arm=lambda f, m: nl.Ack(nl.CommandResult.DENIED, 0, -5))
@@ -557,6 +578,15 @@ class TestParserRobustness(unittest.TestCase):
 class TestDialectValidation(unittest.TestCase):
     def test_clean_dialect_passes(self):
         self.assertEqual(generate.validate(DIALECT), [])
+
+    def test_messages_are_in_msgid_order(self):             # #137
+        # navlink_handlers_t has one on_<msg> slot per message, in dialect order, so
+        # a message inserted out of order silently moves every later slot (a C ABI
+        # change). Keep dialect.json sorted by msgid. This test only enforces the order: a
+        # new message must also take a msgid ABOVE the current maximum, or it still
+        # shifts the slots after it (ABI.md section 10).
+        ids = [m["msgid"] for m in DIALECT["messages"]]
+        self.assertEqual(ids, sorted(ids), "dialect.json messages must be in msgid order")
 
     def test_dialect_matches_schema(self):                  # §7.4
         try:
