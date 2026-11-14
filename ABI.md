@@ -183,6 +183,43 @@ spec §16 conformance vectors.
 > are spec features layered on top; not provided by the codec, so the parser
 > drops any frame with an `incompat_flags` bit set (spec §3.3).
 
+### STATUSTEXT chunks
+
+`STATUSTEXT` carries a `severity`, a 50-byte `text`, a `u16 id` and a `u8
+chunk_seq`. `dialect.json` only says that `id` "groups multi-chunk messages"; it
+has no total, no "last chunk" flag and no "not chunked" value. The rules below are
+the convention that senders and receivers share. It is a **convention, not
+something the wire format or the generated code enforces** (no wire change, same
+`CRC_EXTRA`).
+
+- **`id` 0 is a single message.** The frame is the whole message and is used
+  at once; `chunk_seq` is not looked at. A sender that sets no `id` stays valid.
+- **For any other `id`, `chunk_seq` counts the chunks of one message from 0**, in
+  order. Every chunk but the last fills all 50 bytes of `text` (no NUL byte in
+  it). **The last chunk is the one whose `text` is NUL-terminated**, and the
+  message is complete when chunks 0 through that one have all arrived.
+- **A message whose length is a multiple of 50 ends with an empty chunk.** Its
+  last full chunk has no NUL byte, so it cannot be the end; the sender adds one
+  more chunk whose `text` starts with NUL. The same holds for an `id`-grouped
+  message of length 0.
+- Every chunk of a message repeats the same `severity`; a receiver labels the
+  whole message with the first chunk's.
+- A sender picks a non-zero `id` for each message and does not reuse it while an
+  earlier message with that `id` may still be incomplete at the receiver.
+- What a receiver does with a group that never completes (a lost chunk) is not
+  specified here: it may drop it, or flush what it has marked as incomplete after a
+  timeout.
+
+| message length | frames (`id` ≠ 0) |
+|---|---|
+| 0 to 49 characters | one chunk, `chunk_seq` 0, NUL-terminated |
+| 50 characters | chunk 0 (50 bytes, no NUL), chunk 1 (empty) |
+| 60 characters | chunk 0 (50 bytes, no NUL), chunk 1 (10 characters + NUL) |
+| 100 characters | chunks 0 and 1 (50 bytes each), chunk 2 (empty) |
+
+`chunk_seq` is a `u8`, so one message has at most 256 chunks and the longest
+possible message is 255 × 50 + 49 = 12799 characters.
+
 ---
 
 ## 5. FC firmware (C) integration
