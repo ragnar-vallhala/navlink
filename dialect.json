@@ -241,16 +241,6 @@
       ]
     },
     {
-      "msgid": 11, "name": "FAULT_STATUS", "section": "system",
-      "doc": "One latched fault, raised or cleared (one frame per fault). `id` is a stable fault key from faults.json: the text for an id is fixed, unlike STATUSTEXT.id, which only groups the chunks of one message. The FC re-sends every raised fault every 5 s while disarmed and once on the first GCS heartbeat after a link gap; a clear is sent once with active=0. `text` is NUL-terminated and NUL-padded like STATUSTEXT.text.",
-      "fields": [
-        { "index": 0, "name": "id",       "type": "u16",  "doc": "fault key, see faults.json (spec 14.1)" },
-        { "index": 1, "name": "severity", "type": "u8",   "enum": "severity" },
-        { "index": 2, "name": "active",   "type": "u8",   "enum": "fault_active" },
-        { "index": 3, "name": "text",     "type": "char", "len": 50 }
-      ]
-    },
-    {
       "msgid": 5, "name": "COMMAND_ACK", "replaces": "0x3 (ack)", "section": "system",
       "doc": "Acknowledges any command, correlated by (command, req_seq).",
       "fields": [
@@ -294,7 +284,16 @@
         { "index": 7, "name": "commanded_offset_hi_ms", "type": "i32", "doc": "high 32 bits of the 64-bit correction; only meaningful when role=REQUEST_WIDE, else 0 (truncated off the wire)" }
       ]
     },
-
+    {
+      "msgid": 11, "name": "FAULT_STATUS", "section": "system",
+      "doc": "One latched fault, raised or cleared (one frame per fault). `id` is a stable fault key from faults.json: the text for an id is fixed, unlike STATUSTEXT.id, which only groups the chunks of one message. The FC re-sends every raised fault every 5 s while disarmed and once on the first GCS heartbeat after a link gap; a clear is sent once with active=0. `text` is NUL-terminated and NUL-padded like STATUSTEXT.text.",
+      "fields": [
+        { "index": 0, "name": "id",       "type": "u16",  "doc": "fault key, see faults.json (spec 14.1)" },
+        { "index": 1, "name": "severity", "type": "u8",   "enum": "severity" },
+        { "index": 2, "name": "active",   "type": "u8",   "enum": "fault_active" },
+        { "index": 3, "name": "text",     "type": "char", "len": 50 }
+      ]
+    },
     {
       "msgid": 1024, "name": "IMU_RAW", "replaces": "0x1", "section": "flight.sensors",
       "doc": "Full IMU snapshot. v1: PACKET_TYPE_IMU_DATA_FULL (10×f32).",
@@ -493,7 +492,6 @@
         { "index": 6, "name": "gyro",        "type": "i16", "len": 10, "unit": "0.1 deg/s" }
       ]
     },
-
     {
       "msgid": 1042, "name": "XFER_INFO", "section": "storage.xfer",
       "doc": "Reply to XFER_OPEN once a session is accepted: advertises the negotiated chunk_size and total_size (0xFFFFFFFF = stream/unknown length). Carries no reliability of its own (the session SM owns that); retransmitted by the FC until the first XFER_ACK is seen. Part of the generic bulk-transfer substrate (docs/plans/navlink-xfer-substrate.md).",
@@ -569,7 +567,6 @@
         { "index": 11, "name": "yaw_hz2",  "type": "f32", "unit": "Hz" }
       ]
     },
-
     {
       "msgid": 1048, "name": "HSL_STATUS", "section": "diag.perf",
       "doc": "High-speed IMU-to-SD stream (storage/imu_hs_log) status, so the recorder can be checked over the link instead of by pulling the card. Streamed at 1 Hz. dropped_sectors is the field that matters in flight: it is non-zero only when the card cannot sustain the write rate, and the samples it counts are gone.",
@@ -585,7 +582,26 @@
         { "index": 8, "name": "seq",             "type": "u32", "doc": "seq the next frame will carry; its rate of change is the true sector rate" }
       ]
     },
-
+    {
+      "msgid": 1049, "name": "XFER_SACK", "section": "storage.xfer",
+      "doc": "Selective acknowledgement on a download, the sibling of XFER_ACK's go-back-N recovery. next_offset is the cumulative ack exactly as in XFER_ACK -- the lowest byte not yet received -- and miss_off/miss_len name up to XFER_SACK_MAX_RANGES individual gaps ABOVE it that the receiver is missing. The FC re-sends only those ranges and does NOT rewind its cursor, so data already in flight is not sent twice. Which recovery a transfer uses is the receiver's choice and needs no negotiation: send XFER_ACK with flags=NAK for go-back-N, send XFER_SACK for selective repeat. A receiver that sends neither gets neither. docs/reference/messages/xfer.md.",
+      "fields": [
+        { "index": 0, "name": "session",     "type": "u8" },
+        { "index": 1, "name": "n_ranges",    "type": "u8", "doc": "valid entries in miss_off/miss_len; 0 = a pure cumulative ack" },
+        { "index": 2, "name": "next_offset", "type": "u32", "unit": "bytes", "doc": "lowest byte offset not yet received (cumulative)" },
+        { "index": 3, "name": "miss_off",    "type": "u32", "len": 8, "unit": "bytes", "doc": "start of each missing range" },
+        { "index": 4, "name": "miss_len",    "type": "u16", "len": 8, "unit": "bytes", "doc": "length of each missing range" }
+      ]
+    },
+    {
+      "msgid": 1050, "name": "BATTERY", "section": "flight.sensors",
+      "doc": "Pack voltage from a resistor divider on an ADC pin. `voltage` means a pack only when `flags` has both PRESENT and CONVERTED set; otherwise it is a reading of something that is not a battery, and `flags` says which. `voltage` and `counts` are sent REGARDLESS, because they are the evidence: a de-energised rail reads a low coherent voltage with plausible counts, where a broken converter reads zero counts or rails, and suppressing the number would discard the only thing that separates those. `counts` is the raw ADC value, carried because the volts-per-count scale is a calibrated board constant -- when a reading looks wrong, the count says whether the converter or the calibration is at fault. Cell count is not sensed; a consumer infers it.",
+      "fields": [
+        { "index": 0, "name": "voltage", "type": "f32", "unit": "V" },
+        { "index": 1, "name": "counts",  "type": "u16", "doc": "raw ADC counts the voltage was derived from" },
+        { "index": 2, "name": "flags",   "type": "u8", "enum": "battery_flags" }
+      ]
+    },
     {
       "msgid": 8192, "name": "CMD_ARM", "replaces": "0x3/cmd 0x0002", "section": "system",
       "doc": "Set the software-arm latch. Opens with the standard command header (spec §12.1).",
@@ -640,62 +656,6 @@
         { "index": 2, "name": "req_seq",     "type": "u8" },
         { "index": 3, "name": "axis",        "type": "u8", "enum": "pid_axis" },
         { "index": 4, "name": "rc",          "type": "f32", "unit": "s", "doc": "time constant; <=0 = off" }
-      ]
-    },
-    {
-      "msgid": 8205, "name": "CMD_SET_D_LPF", "replaces": "0x3/cmd 0x000E", "section": "flight.tuning",
-      "doc": "Set rate-loop derivative (D-term) low-pass time constant per axis. v1: rc (seconds); <=0 disables filtering (raw D).",
-      "fields": [
-        { "index": 0, "name": "target_sys",  "type": "u8" },
-        { "index": 1, "name": "target_comp", "type": "u8" },
-        { "index": 2, "name": "req_seq",     "type": "u8" },
-        { "index": 3, "name": "axis",        "type": "u8", "enum": "pid_axis" },
-        { "index": 4, "name": "rc",          "type": "f32", "unit": "s", "doc": "time constant; <=0 = passthrough" }
-      ]
-    },
-    {
-      "msgid": 8206, "name": "CMD_SET_GYRO_NOTCH", "section": "flight.tuning",
-      "doc": "Configure the FFT-driven dynamic gyro notch (dsp/gyro_notch): master enable plus the detection parameters, applied to all axes. A detection field <=0 leaves that parameter unchanged. Persisted to SD (pid.bin).",
-      "fields": [
-        { "index": 0, "name": "target_sys",  "type": "u8" },
-        { "index": 1, "name": "target_comp", "type": "u8" },
-        { "index": 2, "name": "req_seq",     "type": "u8" },
-        { "index": 3, "name": "enabled",     "type": "u8", "doc": "1 = master-enable the notch, 0 = disable" },
-        { "index": 4, "name": "q",           "type": "f32", "doc": "band-stop Q (width); <=0 = unchanged" },
-        { "index": 5, "name": "fmin_hz",     "type": "f32", "unit": "Hz", "doc": "analysis band lower bound; <=0 = unchanged" },
-        { "index": 6, "name": "fmax_hz",     "type": "f32", "unit": "Hz", "doc": "analysis band upper bound; <=0 = unchanged" },
-        { "index": 7, "name": "min_ratio",   "type": "f32", "doc": "peak prominence gate (x mean power); <=0 = unchanged" },
-        { "index": 8, "name": "autoband",    "type": "u8", "doc": "1 = arm a one-shot auto-band learn: characterise the hover spectrum and tighten [fmin,fmax] around it (live-only). 0 = no-op" }
-      ]
-    },
-    {
-      "msgid": 1049, "name": "XFER_SACK", "section": "storage.xfer",
-      "doc": "Selective acknowledgement on a download, the sibling of XFER_ACK's go-back-N recovery. next_offset is the cumulative ack exactly as in XFER_ACK -- the lowest byte not yet received -- and miss_off/miss_len name up to XFER_SACK_MAX_RANGES individual gaps ABOVE it that the receiver is missing. The FC re-sends only those ranges and does NOT rewind its cursor, so data already in flight is not sent twice. Which recovery a transfer uses is the receiver's choice and needs no negotiation: send XFER_ACK with flags=NAK for go-back-N, send XFER_SACK for selective repeat. A receiver that sends neither gets neither. docs/reference/messages/xfer.md.",
-      "fields": [
-        { "index": 0, "name": "session",     "type": "u8" },
-        { "index": 1, "name": "n_ranges",    "type": "u8", "doc": "valid entries in miss_off/miss_len; 0 = a pure cumulative ack" },
-        { "index": 2, "name": "next_offset", "type": "u32", "unit": "bytes", "doc": "lowest byte offset not yet received (cumulative)" },
-        { "index": 3, "name": "miss_off",    "type": "u32", "len": 8, "unit": "bytes", "doc": "start of each missing range" },
-        { "index": 4, "name": "miss_len",    "type": "u16", "len": 8, "unit": "bytes", "doc": "length of each missing range" }
-      ]
-    },
-    {
-      "msgid": 1050, "name": "BATTERY", "section": "flight.sensors",
-      "doc": "Pack voltage from a resistor divider on an ADC pin. `voltage` means a pack only when `flags` has both PRESENT and CONVERTED set; otherwise it is a reading of something that is not a battery, and `flags` says which. `voltage` and `counts` are sent REGARDLESS, because they are the evidence: a de-energised rail reads a low coherent voltage with plausible counts, where a broken converter reads zero counts or rails, and suppressing the number would discard the only thing that separates those. `counts` is the raw ADC value, carried because the volts-per-count scale is a calibrated board constant -- when a reading looks wrong, the count says whether the converter or the calibration is at fault. Cell count is not sensed; a consumer infers it.",
-      "fields": [
-        { "index": 0, "name": "voltage", "type": "f32", "unit": "V" },
-        { "index": 1, "name": "counts",  "type": "u16", "doc": "raw ADC counts the voltage was derived from" },
-        { "index": 2, "name": "flags",   "type": "u8", "enum": "battery_flags" }
-      ]
-    },
-    {
-      "msgid": 8207, "name": "FS_DELETE", "section": "storage.fs",
-      "doc": "Delete one file from the SD card (filesystem navigation). The FC replies with COMMAND_ACK only: ACCEPTED on success, DENIED if the path is absent or permanently protected, TEMPORARILY_REJECTED if the path is protected only while something is using it (retry later), FAILED if the unlink itself errored. WHICH paths fall in which class is the vehicle's own runtime policy and is deliberately not part of this contract: it varies by build and by board, so a ground station that hardcoded a list would be wrong on the next one. Ask, and read the result code. docs/reference/messages/fs_nav.md.",
-      "fields": [
-        { "index": 0, "name": "target_sys",  "type": "u8" },
-        { "index": 1, "name": "target_comp", "type": "u8" },
-        { "index": 2, "name": "req_seq",     "type": "u8" },
-        { "index": 3, "name": "path",        "type": "char", "len": 48, "doc": "file to delete; directories are refused" }
       ]
     },
     {
@@ -794,7 +754,42 @@
         { "index": 3, "name": "path",        "type": "char", "len": 48, "doc": "file or directory path" }
       ]
     },
-
+    {
+      "msgid": 8205, "name": "CMD_SET_D_LPF", "replaces": "0x3/cmd 0x000E", "section": "flight.tuning",
+      "doc": "Set rate-loop derivative (D-term) low-pass time constant per axis. v1: rc (seconds); <=0 disables filtering (raw D).",
+      "fields": [
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "axis",        "type": "u8", "enum": "pid_axis" },
+        { "index": 4, "name": "rc",          "type": "f32", "unit": "s", "doc": "time constant; <=0 = passthrough" }
+      ]
+    },
+    {
+      "msgid": 8206, "name": "CMD_SET_GYRO_NOTCH", "section": "flight.tuning",
+      "doc": "Configure the FFT-driven dynamic gyro notch (dsp/gyro_notch): master enable plus the detection parameters, applied to all axes. A detection field <=0 leaves that parameter unchanged. Persisted to SD (pid.bin).",
+      "fields": [
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "enabled",     "type": "u8", "doc": "1 = master-enable the notch, 0 = disable" },
+        { "index": 4, "name": "q",           "type": "f32", "doc": "band-stop Q (width); <=0 = unchanged" },
+        { "index": 5, "name": "fmin_hz",     "type": "f32", "unit": "Hz", "doc": "analysis band lower bound; <=0 = unchanged" },
+        { "index": 6, "name": "fmax_hz",     "type": "f32", "unit": "Hz", "doc": "analysis band upper bound; <=0 = unchanged" },
+        { "index": 7, "name": "min_ratio",   "type": "f32", "doc": "peak prominence gate (x mean power); <=0 = unchanged" },
+        { "index": 8, "name": "autoband",    "type": "u8", "doc": "1 = arm a one-shot auto-band learn: characterise the hover spectrum and tighten [fmin,fmax] around it (live-only). 0 = no-op" }
+      ]
+    },
+    {
+      "msgid": 8207, "name": "FS_DELETE", "section": "storage.fs",
+      "doc": "Delete one file from the SD card (filesystem navigation). The FC replies with COMMAND_ACK only: ACCEPTED on success, DENIED if the path is absent or permanently protected, TEMPORARILY_REJECTED if the path is protected only while something is using it (retry later), FAILED if the unlink itself errored. WHICH paths fall in which class is the vehicle's own runtime policy and is deliberately not part of this contract: it varies by build and by board, so a ground station that hardcoded a list would be wrong on the next one. Ask, and read the result code. docs/reference/messages/fs_nav.md.",
+      "fields": [
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "path",        "type": "char", "len": 48, "doc": "file to delete; directories are refused" }
+      ]
+    },
     {
       "msgid": 12288, "name": "PARAM_REQUEST_LIST", "section": "storage.param",
       "doc": "Request a full parameter dump (spec §12.2).",

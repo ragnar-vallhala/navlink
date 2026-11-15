@@ -72,6 +72,13 @@ static navlink_ack_t arm_handler(void *ctx, const navlink_frame_hdr_t *hdr,
   return navlink_ack_result(NAVLINK_COMMAND_RESULT_DENIED);
 }
 
+/* The sender's own frame-seq counter (spec 3.5), shared by ACKs and telemetry. */
+static uint8_t g_tx_seq;
+static uint8_t next_seq_cb(void *ctx) {
+  (void)ctx;
+  return g_tx_seq++;
+}
+
 static navlink_ack_t deferred_gate(void *ctx, uint32_t cmd) {
   (void)ctx;
   (void)cmd;
@@ -315,8 +322,9 @@ int main(void) {
     assert(cnt[0] == 1);
   }
 
-  /* Command auto-ack (C behaviour, pinned so the Python parser can match it):
-   * the ack carries the handler's result and reuses req_seq as its frame seq (#131). */
+  /* Command auto-ack with NO next_seq wired -- the legacy v2 fallback, pinned so
+   * the Python parser can match it: the ack carries the handler's result and
+   * reuses req_seq as its frame seq. Unmigrated code lands here (ABI.md sec 10). */
   {
     navlink_handlers_t h;
     memset(&h, 0, sizeof h);
@@ -342,6 +350,58 @@ int main(void) {
     navlink_command_ack_to_aligned(&k, &w);
     assert(k.command == NAVLINK_MSGID_CMD_ARM && k.req_seq == 42 &&
            k.result == NAVLINK_COMMAND_RESULT_DENIED);
+  }
+
+  /* next_seq wired (#131, spec 3.5): the ACK's frame seq comes from the sender's
+   * own counter, never from req_seq, and it is the SAME counter the application
+   * uses for its own frames -- one gap-free sequence. Also wraps at 255, and a
+   * deferred ack sent later via navlink_command_ack_send() draws from it too. */
+  {
+    navlink_handlers_t h;
+    memset(&h, 0, sizeof h);
+    h.send = capture_send;
+    h.sysid = 7;
+    h.compid = 9;
+    h.next_seq = next_seq_cb;
+    h.on_cmd_arm = arm_handler;
+    navlink_parser_t p;
+    navlink_parser_init(&p);
+    navlink_cmd_arm_t c;
+    memset(&c, 0, sizeof c);
+    uint8_t fr[NAVLINK_MAX_FRAME];
+
+    g_tx_seq = 253;
+    c.req_seq = 42; /* a request seq that must NOT leak into the ACK */
+    size_t n = navlink_cmd_arm_encode(fr, &c, 0, 1, 1);
+    g_ack_calls = 0;
+    navlink_parser_push(&p, &h, fr, n);
+    assert(g_ack_calls == 1 && g_ack_frame[4] == 253);
+    navlink_command_ack_wire_t w;
+    navlink_command_ack_unpack(&w, g_ack_frame + NAVLINK_HEADER_LEN, g_ack_frame[2]);
+    navlink_command_ack_t k;
+    navlink_command_ack_to_aligned(&k, &w);
+    assert(k.req_seq == 42); /* correlation still by req_seq, in the payload */
+
+    /* the application's own telemetry takes the next value of the same counter */
+    navlink_attitude_euler_t a;
+    memset(&a, 0, sizeof a);
+    uint8_t tf[NAVLINK_MAX_FRAME];
+    (void)navlink_attitude_euler_encode(tf, &a, next_seq_cb(NULL), 7, 9);
+    assert(tf[4] == 254);
+
+    c.req_seq = 42; /* same req_seq again: the ACK seq still advances */
+    n = navlink_cmd_arm_encode(fr, &c, 0, 1, 1);
+    navlink_parser_push(&p, &h, fr, n);
+    assert(g_ack_calls == 2 && g_ack_frame[4] == 255);
+
+    c.req_seq = 1;
+    n = navlink_cmd_arm_encode(fr, &c, 0, 1, 1);
+    navlink_parser_push(&p, &h, fr, n);
+    assert(g_ack_calls == 3 && g_ack_frame[4] == 0); /* uint8 wrap */
+
+    navlink_command_ack_send(&h, NAVLINK_MSGID_CMD_ARM, 99,
+                             navlink_ack_result(NAVLINK_COMMAND_RESULT_ACCEPTED));
+    assert(g_ack_calls == 4 && g_ack_frame[4] == 1); /* deferred path */
   }
 
   /* A command_gate returning navlink_ack_deferred() (result ACCEPTED) lets the
