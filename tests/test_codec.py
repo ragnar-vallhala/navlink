@@ -579,7 +579,7 @@ class TestDialectValidation(unittest.TestCase):
     def test_clean_dialect_passes(self):
         self.assertEqual(generate.validate(DIALECT), [])
 
-    def test_messages_are_in_msgid_order(self):             # #137
+    def test_messages_are_in_msgid_order(self):
         # navlink_handlers_t has one on_<msg> slot per message, in dialect order, so
         # a message inserted out of order silently moves every later slot (a C ABI
         # change). Keep dialect.json sorted by msgid. This test only enforces the order: a
