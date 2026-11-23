@@ -195,6 +195,59 @@
         { "name": "INIT_FAIL", "value": 8 },
         { "name": "RAILED",    "value": 16 }
       ]
+    },
+    "batt_level": {
+      "section": "flight.state",
+      "doc": "FAILSAFE_STATUS.batt_level: the low-battery level the flight controller has decided on, from the pack voltage per cell after filtering and a hold time (not from one sample). OK = no action. WARN = warning only, control unchanged. LAND = a landing is started in flight (the pilot may cancel it with a mode-switch move). CRITICAL = a faster landing the pilot cannot cancel. The level holds its last value while the voltage cannot be believed (see BATTERY.flags); FAILSAFE_STATUS.flags says so.",
+      "entries": [
+        { "name": "OK",       "value": 0 },
+        { "name": "WARN",     "value": 1 },
+        { "name": "LAND",     "value": 2 },
+        { "name": "CRITICAL", "value": 3 }
+      ]
+    },
+    "landing_cause": {
+      "section": "flight.state",
+      "doc": "FAILSAFE_STATUS.land_cause bitmask: why the flight controller is landing by itself. Several can be set at once. 0 = no automatic landing. BATT is cancellable by the pilot and BATT_CRIT is not.",
+      "entries": [
+        { "name": "NONE",      "value": 0 },
+        { "name": "RC_LOSS",   "value": 1 },
+        { "name": "ESTIMATOR", "value": 2 },
+        { "name": "BATT",      "value": 4 },
+        { "name": "BATT_CRIT", "value": 8 }
+      ]
+    },
+    "failsafe_flags": {
+      "section": "flight.state",
+      "doc": "FAILSAFE_STATUS.flags bitmask. LANDING: an automatic landing is under way (land_cause is not 0). PILOT_TOOK_OVER: the pilot cancelled a battery landing with a mode-switch move; it is not started again at that level. BATT_UNTRUSTED: the pack voltage cannot be believed right now, so batt_level is the last believed one, not a current one.",
+      "entries": [
+        { "name": "NONE",           "value": 0 },
+        { "name": "LANDING",        "value": 1 },
+        { "name": "PILOT_TOOK_OVER","value": 2 },
+        { "name": "BATT_UNTRUSTED", "value": 4 }
+      ]
+    },
+    "arm_refusal": {
+      "section": "flight.state",
+      "doc": "FAILSAFE_STATUS.arm_refusal: why an arm request would be refused right now, the first reason found. 0 = nothing refuses it. The list can grow at the end; a value a consumer does not know is shown as 'refused, reason unknown', not as OK.",
+      "entries": [
+        { "name": "NONE",                "value": 0 },
+        { "name": "SWITCH_NOT_DOWN",     "value": 1 },
+        { "name": "THROTTLE_NOT_MIN",    "value": 2 },
+        { "name": "NO_RC_SIGNAL",        "value": 3 },
+        { "name": "ESTIMATOR_DEGRADED",  "value": 4 },
+        { "name": "NO_INITIAL_ESTIMATE", "value": 5 },
+        { "name": "NO_IMU_SAMPLES",      "value": 6 },
+        { "name": "BATTERY_LOW",         "value": 7 }
+      ]
+    },
+    "capability": {
+      "section": "system",
+      "doc": "HEARTBEAT.capabilities bits (spec 13). A bit says the sender produces that optional message; absence of a bit means unknown, not unsupported on a peer that does not set bits yet.",
+      "entries": [
+        { "name": "NONE",            "value": 0 },
+        { "name": "FAILSAFE_STATUS", "value": 1 }
+      ]
     }
   },
 
@@ -600,6 +653,17 @@
         { "index": 0, "name": "voltage", "type": "f32", "unit": "V" },
         { "index": 1, "name": "counts",  "type": "u16", "doc": "raw ADC counts the voltage was derived from" },
         { "index": 2, "name": "flags",   "type": "u8", "enum": "battery_flags" }
+      ]
+    },
+    {
+      "msgid": 1051, "name": "FAILSAFE_STATUS", "section": "flight.state",
+      "doc": "What the flight controller's own safety logic has decided, so a ground station can show it: the low-battery level, why it is landing by itself, and why an arm request would be refused. A decision, not a measurement (the pack voltage is BATTERY). Sent about 1 Hz and once more at each change. A ground station that has never received one shows 'unknown', not 'OK': an older flight controller does not send it (HEARTBEAT.capabilities bit FAILSAFE_STATUS says this one does). cells is the pack's cell count as a board constant of the flight controller (0 = no pack expected, the battery logic is off); it is what makes per-cell volts of BATTERY.voltage meaningful.",
+      "fields": [
+        { "index": 0, "name": "batt_level",  "type": "u8", "enum": "batt_level" },
+        { "index": 1, "name": "land_cause",  "type": "u8", "enum": "landing_cause" },
+        { "index": 2, "name": "flags",       "type": "u8", "enum": "failsafe_flags" },
+        { "index": 3, "name": "arm_refusal", "type": "u8", "enum": "arm_refusal" },
+        { "index": 4, "name": "cells",       "type": "u8", "doc": "pack cell count of the board, 0 = battery logic off" }
       ]
     },
     {

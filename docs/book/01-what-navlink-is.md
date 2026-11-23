@@ -19,7 +19,7 @@ the code that reads and writes the bytes is generated from it for each language.
 
 ## 1.2 The one source of truth
 
-`dialect.json` is the message catalog. It currently defines 57 messages
+`dialect.json` is the message catalog. It currently defines 58 messages
 (dialect name `vayu-core`, dialect version 2). `faults.json` is a second shared
 table: the list of fault ids carried by the FAULT_STATUS message, with their
 severities and texts. `dialect.schema.json` is the JSON Schema the dialect must

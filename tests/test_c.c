@@ -97,6 +97,18 @@ static void fault_cb(void *ctx, const navlink_frame_hdr_t *hdr,
   c->m = *msg;
 }
 
+struct failsafe_cap {
+  int n;
+  navlink_failsafe_status_t m;
+};
+static void failsafe_cb(void *ctx, const navlink_frame_hdr_t *hdr,
+                        const navlink_failsafe_status_t *msg) {
+  struct failsafe_cap *c = ctx;
+  (void)hdr;
+  c->n++;
+  c->m = *msg;
+}
+
 int main(void) {
   /* CRC-16/MCRF4XX self-check (spec §16.1). */
   uint16_t crc = 0xFFFF;
@@ -468,6 +480,38 @@ int main(void) {
         assert(navlink_fault_table[j].id != f->id);
     }
     assert(navlink_fault_info(0) == NULL);
+  }
+
+  /* FAILSAFE_STATUS: wire order, size, frame round-trip. */
+  {
+    navlink_failsafe_status_t m;
+    memset(&m, 0, sizeof m);
+    m.batt_level = NAVLINK_BATT_LEVEL_LAND;
+    m.land_cause = NAVLINK_LANDING_CAUSE_BATT | NAVLINK_LANDING_CAUSE_RC_LOSS;
+    m.flags = NAVLINK_FAILSAFE_FLAGS_LANDING;
+    m.arm_refusal = NAVLINK_ARM_REFUSAL_BATTERY_LOW;
+    m.cells = 3;
+    navlink_failsafe_status_wire_t w;
+    navlink_failsafe_status_from_aligned(&w, &m);
+    uint8_t pl[NAVLINK_WIRE_SIZE_FAILSAFE_STATUS];
+    memset(pl, 0xAA, sizeof pl);
+    navlink_failsafe_status_pack(pl, &w);
+    assert(NAVLINK_MSGID_FAILSAFE_STATUS == 1051u);
+    assert(NAVLINK_WIRE_SIZE_FAILSAFE_STATUS == 5u);
+    assert(pl[0] == 2 && pl[1] == 5 && pl[2] == 1 && pl[3] == 7 && pl[4] == 3);
+    uint8_t fr[NAVLINK_MAX_FRAME];
+    size_t n = navlink_failsafe_status_encode(fr, &m, 3, 1, 1);
+    struct failsafe_cap cap = { 0, { 0 } };
+    navlink_handlers_t h;
+    memset(&h, 0, sizeof h);
+    h.ctx = &cap;
+    h.on_failsafe_status = failsafe_cb;
+    navlink_parser_t p;
+    navlink_parser_init(&p);
+    navlink_parser_push(&p, &h, fr, n);
+    assert(cap.n == 1);
+    assert(cap.m.batt_level == 2 && cap.m.land_cause == 5 && cap.m.cells == 3);
+    assert(NAVLINK_CAPABILITY_FAILSAFE_STATUS == 1u);
   }
 
   /* Emit parity table (msgid crc_extra wire_size). */
