@@ -579,7 +579,7 @@ class TestDialectValidation(unittest.TestCase):
     def test_clean_dialect_passes(self):
         self.assertEqual(generate.validate(DIALECT), [])
 
-    def test_messages_are_in_msgid_order(self):             # #137
+    def test_messages_are_in_msgid_order(self):
         # navlink_handlers_t has one on_<msg> slot per message, in dialect order, so
         # a message inserted out of order silently moves every later slot (a C ABI
         # change). Keep dialect.json sorted by msgid. This test only enforces the order: a
@@ -789,6 +789,72 @@ class TestFaultStatus(unittest.TestCase):
         # The C table writes the text as a plain string, so it must be ASCII.
         self.assertTrue(any("ASCII" in e for e in errs(dict(ok, text="Baro \u00e9chec"))))
         self.assertTrue(any("ASCII" in e for e in errs(dict(ok, text="bad\ttext"))))
+
+
+class TestFailsafeStatus(unittest.TestCase):
+    """FAILSAFE_STATUS (msgid 1051): what the FC's safety logic decided."""
+
+    @staticmethod
+    def _enum(name):
+        return {e["name"]: e["value"] for e in DIALECT["enums"][name]["entries"]}
+
+    def test_wire_order_and_size(self):
+        m = nl.FailsafeStatus(batt_level=nl.BattLevel.LAND,
+                              land_cause=nl.LandingCause.BATT | nl.LandingCause.RC_LOSS,
+                              flags=nl.FailsafeFlags.LANDING, arm_refusal=7, cells=3)
+        b = m.pack()
+        self.assertEqual(nl.FailsafeStatus.MSGID, 1051)
+        self.assertEqual(b, bytes([2, 5, 1, 7, 3]))
+
+    def test_round_trip_through_the_parser(self):
+        got = []
+        p = nl.Parser(nl.Handlers(on_failsafe_status=lambda f, m: got.append((f, m))))
+        sent = nl.FailsafeStatus(batt_level=3, land_cause=8, flags=1, arm_refusal=0,
+                                 cells=3)
+        p.push(nl.encode(sent, seq=4, sysid=1, compid=1))
+        self.assertEqual(len(got), 1)
+        hdr, m = got[0]
+        self.assertEqual(hdr.msgid, 1051)
+        self.assertEqual((m.batt_level, m.land_cause, m.flags, m.arm_refusal, m.cells),
+                         (3, 8, 1, 0, 3))
+
+    def test_bitmasks_are_disjoint_single_bits(self):
+        for name in ("landing_cause", "failsafe_flags"):
+            e = self._enum(name)
+            self.assertEqual(e["NONE"], 0)
+            bits = [v for n, v in e.items() if n != "NONE"]
+            for v in bits:
+                self.assertEqual(v & (v - 1), 0, f"{name}: {v} is not one bit")
+            self.assertEqual(len(set(bits)), len(bits), f"{name}: shared bit")
+
+    def test_landing_cause_bits_match_the_firmware_latch(self):
+        # rc_safety.c: LAND_CAUSE_RC 1, EST 2, BATT 4, BATT_CRIT 8.
+        e = self._enum("landing_cause")
+        self.assertEqual((e["RC_LOSS"], e["ESTIMATOR"], e["BATT"], e["BATT_CRIT"]),
+                         (1, 2, 4, 8))
+
+    def test_levels_and_refusals_are_unique_and_ordered(self):
+        lv = self._enum("batt_level")
+        self.assertEqual([lv[k] for k in ("OK", "WARN", "LAND", "CRITICAL")], [0, 1, 2, 3])
+        ar = self._enum("arm_refusal")
+        self.assertEqual(ar["NONE"], 0)
+        self.assertEqual(len(set(ar.values())), len(ar))
+
+    def test_fields_are_bound_to_their_enums(self):
+        msg = next(m for m in DIALECT["messages"] if m["name"] == "FAILSAFE_STATUS")
+        bound = {f["name"]: f.get("enum") for f in msg["fields"]}
+        self.assertEqual(bound["batt_level"], "batt_level")
+        self.assertEqual(bound["land_cause"], "landing_cause")
+        self.assertEqual(bound["flags"], "failsafe_flags")
+        self.assertEqual(bound["arm_refusal"], "arm_refusal")
+
+    def test_capability_bit_is_advertised_by_name(self):
+        self.assertEqual(self._enum("capability")["FAILSAFE_STATUS"], 1)
+
+    def test_a_truncated_frame_reads_missing_fields_as_zero(self):
+        # senders trim trailing zero bytes; a level-0 / cause-0 status is short
+        m = nl.FailsafeStatus.unpack(bytes([0, 0, 0, 0]))
+        self.assertEqual((m.batt_level, m.land_cause, m.cells), (0, 0, 0))
 
 
 if __name__ == "__main__":

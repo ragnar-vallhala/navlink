@@ -427,7 +427,7 @@ would reuse an AEAD nonce. `navlink_handlers_t` has a new slot,
   It exists so code that has not migrated still builds and runs; it is not a
   supported configuration. Wire `next_seq` on every link that has `send` set.
 
-**2. `dialect.json` is sorted by `msgid` (#137).** `navlink_handlers_t` has one
+**2. `dialect.json` is sorted by `msgid`.** `navlink_handlers_t` has one
 `on_<msg>` slot per message in dialect order. Sorting moves 23 of the 57 slots
 (for example `on_fault_status`, `on_xfer_sack`, `on_battery`, `on_cmd_set_d_lpf`,
 `on_fs_delete`), and the new `next_seq` slot sits ahead of all of them, so every

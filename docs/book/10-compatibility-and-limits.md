@@ -49,7 +49,7 @@ disagreement between two peers is caught by the CRC (chapter 4).
 |---|---|---|
 | NavLink release | v2.4.0 at the time of writing | the repository's git tags |
 | Wire version | 0x02 | header byte 1 |
-| Dialect | `vayu-core`, version 2, 57 messages | `dialect.json` |
+| Dialect | `vayu-core`, version 2, 58 messages | `dialect.json` |
 | Specification file | headed "2.0-draft", dated June 2026 | `docs/reference/navlink-v2-spec.md` |
 
 The specification file's header is older than the releases. For what the code does
