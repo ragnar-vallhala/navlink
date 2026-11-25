@@ -63,7 +63,6 @@ protocol is a non-goal.
 | **aligned struct** | naturally-aligned application struct for the same message (§8.2) |
 | **secured frame** | a frame carrying `IFLAG_SIGNED` or `IFLAG_ENCRYPTED` (§11) |
 | **T0** | the synchronised reference epoch for wall-clock timestamps (§10) |
-| **skew** | the tolerated FC↔GCS clock disagreement for secured frames (§11.5) |
 
 ---
 
@@ -81,7 +80,7 @@ A NavLink v2 frame is:
 ```
 
 The header is a **fixed 10 bytes** (offsets 0–9). The trailer is either a
-2-byte CRC (unsecured) or a `[timestamp:6][tag:N]` secured trailer (§11).
+2-byte CRC (unsecured) or a `[counter:6][tag:N]` secured trailer (§11).
 
 ### 3.2 Header layout (normative)
 
@@ -150,7 +149,7 @@ field), and `0x02` never occurs there for v1. A future v3 takes `0x03`, etc.
 `seq` increments by 1 (mod 256) for every frame a peer emits **per
 (sysid, compid)**. Receivers MAY use gaps to estimate link loss. `seq`
 participates in the AEAD nonce for secured frames (§11.4); a sender MUST NOT
-emit two secured frames with the same `(sysid, compid, seq, timestamp)`.
+emit two secured frames with the same `(sysid, compid, seq, counter)` under one key.
 
 ### 3.6 Sizes
 
@@ -827,103 +826,186 @@ T0 is fixed at the startup sync and the resyncs only trim accumulated drift (the
 do not reset T0), so the 20-bit seconds field stays continuous; its ≈291 h span
 dwarfs any flight, so it never rolls within a session (§6.1).
 
-### 10.5 Security gate (normative)
+### 10.5 Command gate (normative)
 
-Until the startup sync succeeds — and whenever the FC's clock and the GCS
-reference disagree by more than `skew` (§11.5) — the FC is **unsynchronised**: it
-MUST set `TIME_STALE` (§6.1) on its own stamps and MUST reject every secured and
-every command frame (§11, §12.1). This is what allows the synchronised wall-clock
-to serve as the anti-replay anchor (§11.5) with no persisted counter.
+Until the startup sync succeeds, and whenever the FC's clock and the GCS
+reference disagree by more than a configured tolerance, the FC is
+**unsynchronised**: it MUST set `TIME_STALE` (§6.1) on its own stamps and MUST
+reject every command frame (§12.1).
+
+This gate is about timestamps, not security. **The clock is not a security
+anchor** (§11.5): `TIME_SYNC` sets the FC clock by an arbitrary offset, so
+anything that can forge a `TIME_SYNC` can move it. On a link where a key is
+configured (§11.7) the FC MUST accept a `TIME_SYNC` that changes its clock only in
+a secured frame (§11.9); an unsecured one is dropped, so the clock cannot be used
+to attack replay protection or anything else. Replay protection uses counters,
+not the clock (§11.5).
 
 ---
 
 ## 11. Security layer
+
+Replay protection and nonce uniqueness rest on **counters and per-session keys,
+never on the synchronised clock** (decision D1). This revises an earlier draft
+that anchored replay on the clock and kept no counter; that draft allowed a
+forged clock to reopen replay and let a nonce repeat across sessions. Status:
+specification only, not implemented by the generated codec.
 
 ### 11.1 Modes
 
 Per-frame, selected by `incompat_flags` (§3.3), default-off, gated at build time
 by `ENABLE_NAVLINK_CRYPTO` and advertised in `CAPABILITIES` (§13):
 
-- `IFLAG_SIGNED` — authenticate only; payload cleartext.
-- `IFLAG_ENCRYPTED` — AEAD; payload encrypted **and** authenticated.
+- `IFLAG_SIGNED`: authenticate only; payload cleartext.
+- `IFLAG_ENCRYPTED`: AEAD; payload encrypted **and** authenticated.
 
 Both use one **AEAD** construction (no separate encrypt-then-MAC). The header is
-the AEAD **associated data** (authenticated, not encrypted) so addressing stays
-readable for routing/framing; only the payload is encrypted (for `IFLAG_ENCRYPTED`).
+associated data, so addressing stays readable for routing and framing; only the
+payload is encrypted (for `IFLAG_ENCRYPTED`). The tag length N is fixed per link
+by configuration and advertised in `CAPABILITIES.sec_modes`; it is not in the
+frame, so both ends MUST agree on it before a session starts.
+
+**Same on every link (decision D2).** The security policy does not depend on the
+transport: USB, a serial radio and a wireless bridge are all treated alike. Once a
+session exists, every frame the two ends exchange, in both directions, is
+`IFLAG_ENCRYPTED`, with these exceptions only: `HEARTBEAT`, `CAPABILITIES` and the
+handshake messages (§11.8), which stay unsecured so a peer can be discovered.
+`IFLAG_SIGNED` remains in the frame format for tools that need readable payloads
+(for example a diagnostic mode), but a conforming vehicle does not select it by
+transport.
 
 ### 11.2 Secured trailer
 
 When a security flag is set the 2-byte CRC is **absent**, replaced by:
 
 ```
-[ timestamp : 6 ][ tag : N ]      N = 16 (full Poly1305/GCM) or 8 (truncated)
+[ counter : 6 ][ tag : N ]      N = 16 (full Poly1305/GCM) or 8 (truncated)
 ```
 
-- `timestamp` — 48-bit, 100 µs ticks since synced epoch T0 (§10), strictly
-  monotonic per (sysid, compid, direction).
-- `tag` — AEAD tag over (AAD ∥ ciphertext), where AAD = header bytes `1 … 9`.
+- `counter`: 48-bit frame counter, little-endian, per (session, direction),
+  starting at 0 and strictly increasing by at least 1 for each secured frame the
+  sender emits. It is not a time.
+- `tag`: AEAD tag over (AAD ∥ ciphertext), where
+  AAD = header bytes `1 … 9` ∥ `tag_len` (1 byte) ∥ `dir` (1 byte).
+  Header bytes 1..9 already cover the version, `payload_len`, `incompat_flags`,
+  `seq`, `sysid`, `compid` and the 24-bit `msgid`; `tag_len` and `dir` are added
+  so neither can be altered or confused. `dir = 0` for FC→GCS, `1` for GCS→FC.
 
 ### 11.3 Cipher
 
 Default **ChaCha20-Poly1305** (IETF, 96-bit nonce, 128-bit tag): fast and
-constant-time in software on the Cortex-M4, no crypto peripheral required (F405/
-F407 have none; only F415/417/437/439 ship CRYP). **AES-GCM** or **AES-CCM** MAY
-be used where hardware AES exists. Implementations MUST use a vetted library
-(e.g. Monocypher) and MUST NOT hand-roll the primitive.
+constant-time in software on the Cortex-M4, no crypto peripheral required (F401,
+F405 and F407 have none; only F415/417/437/439 ship CRYP). **AES-GCM** or
+**AES-CCM** MAY be used where hardware AES exists. Implementations MUST use a
+vetted library (for example Monocypher) tested against the RFC 8439 vectors, and
+MUST NOT hand-roll the primitive.
 
 ### 11.4 Nonce construction
 
-The 96-bit nonce is derived deterministically — never random, never fully
-transmitted:
+The 96-bit nonce is deterministic, never random, never fully transmitted:
 
 ```
-nonce[12] = dir(1) ∥ sysid(1) ∥ compid(1) ∥ seq(1) ∥ timestamp(6) ∥ 0x00 0x00
+nonce[12] = counter(6) ∥ seq(1) ∥ sysid(1) ∥ compid(1) ∥ 0x00 0x00 0x00
 ```
 
-`dir = 0` for FC→GCS, `1` for GCS→FC (the two directions never share a nonce
-under one key); `sysid`, `compid`, `seq` come from the cleartext header;
-`timestamp` is the trailer field. Uniqueness holds while `(timestamp, seq)` never
-repeats for a `(dir, sysid, compid)` — guaranteed because `timestamp` is
-monotonic and a 100 µs tick is finer than 256 `seq` values at any real rate. A
-sender MUST NOT reuse a nonce under a key.
+Each direction of each session has its **own subkey** (§11.9), so the direction
+does not need a nonce byte and no two sessions share a (key, nonce) pair. Within
+one subkey the counter never repeats, so the nonce never repeats. A sender MUST
+NOT reuse a nonce under a key, and MUST stop sending (and close the session) when
+its counter would reach 2^48 − 1.
 
-### 11.5 Replay protection (reboot-safe)
+### 11.5 Replay protection
 
-A receiver MUST accept a secured frame only if its `timestamp` is **both**:
-
-1. within the window `[now − skew, now]` against the receiver's synced clock, and
-2. strictly greater than the last `timestamp` accepted from that
-   `(sysid, compid, direction)`.
-
-`skew` is a configured tolerance (default **1 s** for a UART link). Because the
-anchor is the *synced* clock (not a free counter), a power-cycle cannot rewind
-it: on reconnect the FC re-syncs (§10.5) and any frame captured from a past
-session is outside the window and rejected — **no counter is persisted to flash**.
+A receiver MUST accept a secured frame only if its tag verifies **and** its
+`counter` is strictly greater than the last counter it accepted in that
+(session, direction). The first frame of a session is accepted at any counter,
+including 0. The check uses no clock and no window: a captured frame is rejected
+the moment a later one has been accepted, and a captured frame from a past
+session fails the tag because the session key differs (§11.9). The receiver MUST
+verify the tag **before** updating the last-accepted counter, so a forged frame
+cannot advance it. A lost frame leaves a gap in the counter, which is fine.
 
 ### 11.6 Order of operations
 
-Sender: truncate trailing-zero **plaintext** (§5.6) → set `payload_len` →
-encrypt the truncated plaintext (stream cipher preserves length) → compute tag
-over (header ∥ ciphertext) with the §11.4 nonce → emit. Receiver: verify tag →
-decrypt → zero-fill to full message length → decode. `payload_len` is in the
-authenticated header, so the fill length cannot be tampered.
+Sender: truncate trailing-zero **plaintext** (§5.6), set `payload_len`, encrypt
+the truncated plaintext (stream cipher preserves length), compute the tag over
+(AAD ∥ ciphertext) with the §11.4 nonce, emit. Receiver: verify the tag, check
+the counter, decrypt, zero-fill to full message length, decode. `payload_len` is
+in the authenticated header, so the fill length cannot be tampered.
 
 ### 11.7 Keys
 
-A **pre-shared key** lives in `0:navlink.key` on the FC SD card, read once at
-boot, never transmitted; the GCS holds the matching key in config. Provisioning
-is out of band (write the card directly). `CAPABILITIES.key_id` is a **non-secret**
-identifier so both ends confirm a shared key at connect rather than failing
-silently. Key rotation is permitted only over USB or an already-secured link.
-An **X25519 (ECDH) handshake** for per-session keys/forward secrecy MAY be added
-later, negotiated via `CAPABILITIES`; not required for the first cut.
+**Long-term key.** A 32-byte pre-shared key K, held by the FC and the GCS, never
+transmitted. `CAPABILITIES.key_id` is a **non-secret** 32-bit identifier (the first
+four bytes of a keyed hash of K under a fixed label, which reveals nothing about
+K) so both ends confirm a shared key at connect rather than failing silently.
 
-### 11.8 Downgrade protection
+**Storage on the FC.** In a reserved flash sector (readout-protected where the
+part allows) and/or on the SD card; no secure element is assumed, and physical
+access to a powered board with a debugger defeats it. The FC reads K at boot and
+holds it in RAM only. **On the GCS** the key MUST be encrypted at rest (an OS
+keystore or a passphrase-wrapped file) and MUST NOT appear in a log, a crash
+report or a configuration file in clear.
+
+**Provisioning and rotation.** Setting or replacing K is permitted only over a
+wired, local link (USB), only while **disarmed**, only when no secured session is
+active, and within a window after boot. It MUST NOT be possible over a wireless
+link, in flight, or over a secured session (a stolen GCS must not be able to
+rotate the vehicle away from its owner). Revoking a lost GCS means replacing K
+over USB. An unkeyed FC behaves as an unsecured FC and advertises
+`sec_modes = none`.
+
+An **X25519 (ECDH) handshake** for forward secrecy MAY be added later, negotiated
+via `CAPABILITIES`; it is not part of the first cut.
+
+### 11.8 Downgrade and strict mode
 
 A peer that sets a security flag the receiver did not negotiate is dropped (the
-flags are `incompat`, §3.3). A vehicle MAY be configured to **reject** an
-unsecured `CMD_ARM` (and any other safety-critical command), so a forced
-downgrade to cleartext cannot arm it.
+flags are `incompat`, §3.3). Once a key is present the FC runs in **strict mode**
+by default: it MUST reject an unsecured frame of any of these kinds: command,
+parameter write, mission, filesystem write, and any `TIME_SYNC` that changes the
+clock. It MAY accept `HEARTBEAT`, `CAPABILITIES` and the handshake messages
+unsecured, so a GCS can discover the vehicle and see that it is keyed. The FC
+sends secured telemetry only to a peer that completed a handshake; before that it
+sends only `HEARTBEAT` and `CAPABILITIES`.
+
+### 11.9 Sessions and the handshake
+
+A session key is derived per connection from K, so a counter restarting at 0 can
+never meet an old key.
+
+1. The GCS sends `HELLO { gcs_nonce[16] }`, 16 fresh random bytes.
+2. The FC replies with `fc_boot_ctr` (32 bit), `fc_hs_ctr` (32 bit) and its device
+   UID, authenticated by a keyed hash (BLAKE2b, key K) over a fixed label, both
+   nonces and every field of the reply.
+3. Each side derives the two direction subkeys:
+   `Ks_dir = BLAKE2b-keyed(K, "navlink-session" ∥ dir ∥ gcs_nonce ∥ fc_boot_ctr ∥ fc_hs_ctr ∥ uid)`.
+
+`fc_boot_ctr` is a 32-bit counter kept across power cycles. The STM32F401 has no
+random number generator, so a random value cannot come from the FC; a counter plus
+the device UID can. The FC MUST write the incremented value and read it back
+**before** deriving any session key; if the write fails, or the counter is
+exhausted, no secured session is established (the link fails closed, see §11.10).
+`fc_hs_ctr` is a counter in RAM, incremented for every handshake the FC accepts
+within a boot, so replaying a captured HELLO in the same boot still yields a
+different `Ks`. The FC also remembers recent `gcs_nonce` values and drops a
+repeat. Handshake attempts are rate-limited (at most one per second) so they
+cannot be used to burn CPU. The exact message layouts and ids are defined with the
+dialect change that implements this section.
+
+### 11.10 Failure handling (normative)
+
+Cryptography MUST NOT be on, or able to block, the flight-critical path. RC input,
+sensor acquisition, estimation, control, the motors and the failsafe logic never
+call it and never wait on it. It runs only in the link's receive and transmit
+tasks, with bounded work per frame (fixed maximum length, no loop bounded by an
+attacker-controlled value), no heap and no blocking wait.
+
+Any failure (bad tag, wrong key, counter not increasing, missing or unreadable
+key, failed counter write, handshake timeout) has exactly one effect: the frame
+is dropped and a counter is incremented. It MUST NOT change the arm state, start a
+failsafe or a landing, or disarm. Failing closed applies to the **link only**: the
+vehicle goes quiet on navlink (unsecured-silent), it does not stop flying.
 
 ---
 
@@ -1350,10 +1432,13 @@ MUST:
 
 ### 16.4 Secured frame
 
-With `IFLAG_ENCRYPTED`, a frame MUST: carry no CRC; carry `[timestamp:6][tag:16]`;
-use the §11.4 nonce; verify the tag over (header[1..9] ∥ ciphertext); be rejected
-if `timestamp` is outside `[now−skew, now]` or not strictly increasing; be
-rejected entirely if the FC is unsynchronised (§10.5).
+With `IFLAG_ENCRYPTED`, a frame MUST: carry no CRC; carry `[counter:6][tag:N]`;
+use the §11.4 nonce under the session subkey of its direction; verify the tag
+over (AAD ∥ ciphertext) with AAD = header[1..9] ∥ tag_len ∥ dir; be rejected if
+its `counter` is not strictly greater than the last accepted in that
+(session, direction); and be rejected, with nothing else changed, on any failure
+(§11.10). Conformance vectors (RFC 8439 for the cipher; golden handshake and frame
+bytes) are added with the implementation.
 
 ### 16.5 Version demux
 

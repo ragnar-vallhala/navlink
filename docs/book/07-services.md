@@ -95,8 +95,8 @@ drift past a threshold. T0 is fixed at the startup sync, and later syncs only
 trim drift, so timestamps stay continuous.
 
 **Safety gate.** Until the startup sync succeeds, the vehicle is unsynchronised.
-It must mark its own stamps `TIME_STALE` and must reject every command (and every
-secured frame). The firmware does this through `command_gate`, answering
+It must mark its own stamps `TIME_STALE` and must reject every command. (This gate is about timestamps; it is not
+the security layer's replay protection, which uses counters.) The firmware does this through `command_gate`, answering
 `TEMPORARILY_REJECTED` until it is synchronised.
 
 ## 7.5 What the specification describes but the dialect does not contain

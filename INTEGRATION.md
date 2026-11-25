@@ -244,5 +244,5 @@ parity, spec §16 vectors) and the link emulator in `sim/`.
   `report-id = seq` correlation the firmware already produces, or move to the
   frame `seq` — decide with whoever owns `perf_telemetry.c`.
 - **Spec doc** §10/§14 update for `TIME_SYNC` (§6 above).
-- **Security/time-sync gate.** Until sync succeeds the FC should reject
-  secured/command frames (spec §10.5) — policy in *your* dispatch, not the codec.
+- **Time-sync gate.** Until sync succeeds the FC should reject command
+  frames (spec §10.5); this is not a security control (spec §11.5) — policy in *your* dispatch, not the codec.
