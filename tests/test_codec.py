@@ -839,6 +839,22 @@ class TestFailsafeStatus(unittest.TestCase):
         self.assertEqual((e["LANDING"], e["PILOT_TOOK_OVER"], e["BATT_UNTRUSTED"],
                           e["GPS_UNTRUSTED"]), (1, 2, 4, 8))
 
+    def test_gps_raw_is_the_nav_pvt_shape(self):
+        msg = next(m for m in DIALECT["messages"] if m["name"] == "GPS_RAW")
+        self.assertEqual(msg["msgid"], 1052)
+        self.assertEqual(msg["section"], "flight.sensors")
+        self.assertEqual([f["name"] for f in msg["fields"]],
+                         ["time_us", "lat_e7", "lon_e7", "alt_mm", "vel_ned_mm_s",
+                          "h_acc_mm", "v_acc_mm", "s_acc_mm_s", "pdop_x100",
+                          "fix_type", "sats", "nav_flags"])
+        self.assertEqual(next(f for f in msg["fields"] if f["name"] == "vel_ned_mm_s")["len"], 3)
+        fix = self._enum("gps_fix_type")
+        self.assertEqual([fix[k] for k in ("NO_FIX", "DEAD_RECKONING", "FIX_2D",
+                                           "FIX_3D", "GNSS_DR", "TIME_ONLY")],
+                         [0, 1, 2, 3, 4, 5])
+        cap = self._enum("capability")
+        self.assertEqual((cap["FAILSAFE_STATUS"], cap["GPS_RAW"]), (1, 2))
+
     def test_levels_and_refusals_are_unique_and_ordered(self):
         lv = self._enum("batt_level")
         self.assertEqual([lv[k] for k in ("OK", "WARN", "LAND", "CRITICAL")], [0, 1, 2, 3])

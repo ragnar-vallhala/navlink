@@ -109,6 +109,18 @@ static void failsafe_cb(void *ctx, const navlink_frame_hdr_t *hdr,
   c->m = *msg;
 }
 
+struct gps_cap {
+  int n;
+  navlink_gps_raw_t m;
+};
+static void gps_cb(void *ctx, const navlink_frame_hdr_t *hdr,
+                   const navlink_gps_raw_t *msg) {
+  struct gps_cap *c = ctx;
+  (void)hdr;
+  c->n++;
+  c->m = *msg;
+}
+
 int main(void) {
   /* CRC-16/MCRF4XX self-check (spec §16.1). */
   uint16_t crc = 0xFFFF;
@@ -514,6 +526,62 @@ int main(void) {
     assert(cap.m.flags == 9);
     assert(NAVLINK_FAILSAFE_FLAGS_GPS_UNTRUSTED == 8u);
     assert(NAVLINK_CAPABILITY_FAILSAFE_STATUS == 1u);
+  }
+
+  /* GPS_RAW: NAV-PVT units, wire order and size, a negative value, round trip. */
+  {
+    navlink_gps_raw_t m;
+    memset(&m, 0, sizeof m);
+    m.time_us = 0x0102030405060708ull;
+    m.lat_e7 = 311234567;
+    m.lon_e7 = -1223456789; /* west: negative */
+    m.alt_mm = -1500;       /* below sea level */
+    m.vel_ned_mm_s[0] = 1000;
+    m.vel_ned_mm_s[1] = -2000;
+    m.vel_ned_mm_s[2] = 300;
+    m.h_acc_mm = 1500;
+    m.v_acc_mm = 2500;
+    m.s_acc_mm_s = 0xFFFFFFFFu;
+    m.pdop_x100 = 187;
+    m.fix_type = NAVLINK_GPS_FIX_TYPE_FIX_3D;
+    m.sats = 14;
+    m.nav_flags = 1;
+    navlink_gps_raw_wire_t w;
+    navlink_gps_raw_from_aligned(&w, &m);
+    uint8_t pl[NAVLINK_WIRE_SIZE_GPS_RAW];
+    memset(pl, 0xAA, sizeof pl);
+    navlink_gps_raw_pack(pl, &w);
+    assert(NAVLINK_MSGID_GPS_RAW == 1052u);
+    assert(NAVLINK_WIRE_SIZE_GPS_RAW == 49u);
+    assert(NAVLINK_CAPABILITY_GPS_RAW == 2u);
+    assert(NAVLINK_GPS_FIX_TYPE_NO_FIX == 0 && NAVLINK_GPS_FIX_TYPE_FIX_3D == 3 &&
+           NAVLINK_GPS_FIX_TYPE_TIME_ONLY == 5);
+    /* little endian, in field order: time_us at 0, lat 8, lon 12, alt 16,
+     * vel 20/24/28, h_acc 32, v_acc 36, s_acc 40, pdop 44, fix 46, sats 47,
+     * flags 48. */
+    assert(pl[0] == 0x08 && pl[7] == 0x01);
+    assert(pl[8] == (311234567 & 0xFF) && pl[11] == ((311234567 >> 24) & 0xFF));
+    assert(pl[12 + 3] == 0xB7); /* -1223456789 = 0xB7 .. top byte */
+    assert(pl[16] == 0x24 && pl[17] == 0xFA && pl[18] == 0xFF && pl[19] == 0xFF);
+    assert(pl[24] == 0x30 && pl[25] == 0xF8); /* -2000 = 0xFFFFF830 */
+    assert(pl[40] == 0xFF && pl[43] == 0xFF && pl[44] == 187 && pl[45] == 0);
+    assert(pl[46] == 3 && pl[47] == 14 && pl[48] == 1);
+    uint8_t fr[NAVLINK_MAX_FRAME];
+    size_t n = navlink_gps_raw_encode(fr, &m, 5, 1, 1);
+    struct gps_cap cap;
+    memset(&cap, 0, sizeof cap);
+    navlink_handlers_t h;
+    memset(&h, 0, sizeof h);
+    h.ctx = &cap;
+    h.on_gps_raw = gps_cb;
+    navlink_parser_t p;
+    navlink_parser_init(&p);
+    navlink_parser_push(&p, &h, fr, n);
+    assert(cap.n == 1);
+    assert(cap.m.time_us == m.time_us && cap.m.lat_e7 == 311234567);
+    assert(cap.m.lon_e7 == -1223456789 && cap.m.alt_mm == -1500);
+    assert(cap.m.vel_ned_mm_s[1] == -2000 && cap.m.s_acc_mm_s == 0xFFFFFFFFu);
+    assert(cap.m.fix_type == 3 && cap.m.sats == 14 && cap.m.nav_flags == 1);
   }
 
   /* Emit parity table (msgid crc_extra wire_size). */

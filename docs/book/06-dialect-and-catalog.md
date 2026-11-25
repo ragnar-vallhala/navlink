@@ -4,7 +4,7 @@
 
 `dialect.json` holds three things: a `sections` tree used only for documentation,
 a list of `enums`, and the list of `messages`. The version in the file today is
-dialect `vayu-core`, version 2, with 20 enums and 58 messages.
+dialect `vayu-core`, version 2, with 21 enums and 59 messages.
 
 A message looks like this:
 
@@ -46,12 +46,12 @@ also checks the rules above before it writes anything.
 
 ## 6.3 The catalog by section
 
-The 58 messages in the current dialect, grouped by the dialect's own sections:
+The 59 messages in the current dialect, grouped by the dialect's own sections:
 
 | Section | Count | Messages |
 |---|---|---|
 | Link and system | 12 | HEARTBEAT, SYSTEM_HEALTH, FLIGHT_MODE, STATUSTEXT, FAULT_STATUS, COMMAND_ACK, PING, CAPABILITIES, TIME_SYNC, CMD_ARM, CMD_DISARM, CMD_SET_FLIGHT_MODE |
-| Flight: sensors | 5 | IMU_RAW, IMU_COMPRESSED, RC_CHANNELS, BARO, BATTERY |
+| Flight: sensors | 6 | IMU_RAW, IMU_COMPRESSED, RC_CHANNELS, BARO, BATTERY, GPS_RAW |
 | Flight: state and control | 6 | ATTITUDE_EULER, MOTOR_TELEMETRY, CONTROL_TRACE, VERTICAL_STATE, NOTCH_STATUS, FAILSAFE_STATUS |
 | Flight: tuning and filters | 5 | CMD_SET_PID, CMD_SET_GYRO_LPF, CMD_SET_D_LPF, CMD_SET_GYRO_NOTCH, CMD_SET_MOTOR_GEOMETRY |
 | Flight: calibration | 2 | CMD_CALIBRATE_IMU, CALIBRATION_STATUS |
