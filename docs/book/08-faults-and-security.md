@@ -92,7 +92,7 @@ follows is what the specification requires of a layer that you would add.
   readout-protected flash (never on the SD card) and is encrypted at rest on the
   ground station; every connection derives a fresh session key from it. It can be
   set only over a wired link, disarmed, never over a wireless link, in flight or
-  over a secured session. A keyed vehicle rejects unsecured commands, parameter
+  over a secured session. A keyed vehicle always rejects (strict mode, no way to switch it off over the link) unsecured commands, parameter
   writes, missions, file writes and clock changes (strict mode).
 - **Failure.** A bad tag, wrong key, repeated counter or any other crypto failure
   drops the frame and counts it. It never changes the arm state, never starts a

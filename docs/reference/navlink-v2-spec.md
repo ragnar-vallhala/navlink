@@ -971,9 +971,10 @@ via `CAPABILITIES`; it is not part of the first cut.
 
 A peer that sets a security flag the receiver did not negotiate is dropped (the
 flags are `incompat`, §3.3). Once a key is present the FC runs in **strict mode**
-by default: it MUST reject an unsecured frame of any of these kinds: command,
-parameter write, mission, filesystem write, and any `TIME_SYNC` that changes the
-clock. It MAY accept `HEARTBEAT`, `CAPABILITIES` and the handshake messages
+(decision D4): it MUST refuse every unsecured command, and every other unsecured
+frame of these kinds: parameter write, mission, filesystem write, and any
+`TIME_SYNC` that changes the clock. Strict mode is not a setting a link can turn
+off; it ends only when the key is removed over the wired provisioning path (§11.7). It MAY accept `HEARTBEAT`, `CAPABILITIES` and the handshake messages
 unsecured, so a GCS can discover the vehicle and see that it is keyed. The FC
 sends secured telemetry only to a peer that completed a handshake; before that it
 sends only `HEARTBEAT` and `CAPABILITIES`.
