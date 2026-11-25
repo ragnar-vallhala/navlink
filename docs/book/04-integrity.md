@@ -56,7 +56,8 @@ Two things follow:
 The CRC detects accidental corruption. It does not authenticate the sender and
 does not stop a deliberate attacker. The specification defines a separate
 secured trailer (signing or encryption) for that. The generated codec does not
-implement it (chapters 3 and 8).
+implement it (chapters 3 and 8). The specification's replay protection uses
+frame counters and per-session keys, not the clock (chapter 8, section 8.4).
 
 ## 4.5 Test vectors
 

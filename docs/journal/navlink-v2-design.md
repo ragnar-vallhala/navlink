@@ -621,6 +621,7 @@ gate.
 receiver already holds — never transmitted in full, never random:
 
 ```
+<!-- Superseded: the spec (section 11.4-11.5) now uses a frame counter and per-session keys, not the clock. Kept here as the original design record. -->
 nonce[12] = dir(1) ∥ sysid(1) ∥ compid(1) ∥ seq(1) ∥ timestamp(6) ∥ 0x0000(2)
 ```
 

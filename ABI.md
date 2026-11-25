@@ -294,7 +294,8 @@ void emit_attitude(float roll, float pitch, float yaw) {
   boot) for intra-vehicle alignment; wall-clock timestamps come only from the
   GCS-driven sync (spec §6, §10) — the FC never invents wall-clock time.
 - **Safety gate.** Until time-sync succeeds the FC is "unsynchronised" and must
-  reject secured/command frames (spec §10.5). Enforce it in
+  reject command frames (spec §10.5). This is a timestamp rule, not a security
+  one: replay protection uses counters (spec §11.5). Enforce it in
   `navlink_handlers_t.command_gate`, which the dispatch consults before every
   command handler — a new command is then gated without touching its handler.
 

@@ -65,25 +65,46 @@ follows is what the specification requires of a layer that you would add.
 
 - **Modes.** `IFLAG_SIGNED` authenticates the frame and leaves the payload
   readable. `IFLAG_ENCRYPTED` encrypts the payload and authenticates it. Both use
-  one authenticated-encryption construction, with the header as associated data
-  so that addressing stays readable.
-- **Trailer.** The 2-byte CRC is replaced by a 6-byte timestamp (100 microsecond
-  ticks since T0) and an authentication tag of 16 bytes, or 8 if truncated.
+  one authenticated-encryption construction, with the header, the tag length and
+  the direction as associated data so that addressing stays readable.
+- **Same on every link.** The policy does not depend on the transport: once a
+  session exists every frame, both ways, is encrypted and authenticated, except
+  `HEARTBEAT`, `CAPABILITIES` and the handshake.
+- **Trailer.** The 2-byte CRC is replaced by a 6-byte frame counter and an
+  authentication tag of 16 bytes, never truncated, on every link and in both
+  directions. A secured frame is up to 287 bytes.
 - **Cipher.** ChaCha20-Poly1305 by default, chosen because it is fast and
   constant-time in software on a Cortex-M4 with no crypto hardware. AES-GCM or
   AES-CCM may be used where hardware AES exists. A vetted library must be used,
   never a hand-written primitive.
-- **Nonce.** Built from the direction, sysid, compid, seq and trailer timestamp,
-  never random and never sent whole. A nonce is never reused under one key.
-- **Replay protection.** A secured frame is accepted only if its timestamp is
-  within a window (default 1 second) of the receiver's synchronised clock **and**
-  is greater than the last timestamp accepted from that sender and direction.
-  Because the anchor is the synchronised clock, a reboot cannot rewind it, so no
-  counter has to be kept in flash.
-- **Keys.** A pre-shared key held in `0:navlink.key` on the vehicle's SD card, read
-  once at boot and never transmitted.
-- **Gate.** While unsynchronised, the vehicle rejects every secured frame and every
-  command (chapter 7).
+- **Counters, not the clock.** Replay protection and nonce uniqueness use the
+  frame counter and a per-session key. A frame is accepted only if its tag
+  verifies and its counter is greater than the last accepted in that session and
+  direction. The synchronised clock plays no part: `TIME_SYNC` can set the
+  vehicle's clock to anything, so a clock-based window could be reopened by a
+  forged sync. (An earlier draft used the clock; it is superseded.)
+- **Sessions.** Each connection derives two direction keys from the long-term key
+  and a handshake: a random nonce from the ground station, a boot counter the
+  vehicle keeps across power cycles (the STM32F401 has no random number
+  generator), a per-handshake counter and the device id. A replayed handshake or a
+  restarted counter therefore never meets an old key and a nonce never repeats.
+- **No lockout.** A handshake request creates only a *pending* session. The
+  session in use is replaced only when the first secured frame from the ground
+  station verifies under the new keys, so someone without the key cannot cut the
+  link by sending handshakes. An unconfirmed pending session expires.
+- **One counter per sender and direction,** shared by all its components.
+- **Keys.** A 32-byte pre-shared key, never transmitted. It lives in the vehicle's
+  readout-protected flash (never on the SD card) and is encrypted at rest on the
+  ground station; every connection derives a fresh session key from it. It can be
+  set only over USB, disarmed, within a short window after boot, never over a
+  wireless or other serial link, in flight or over a secured session. A keyed vehicle always rejects (strict mode, no way to switch it off over the link) unsecured commands, parameter
+  writes, missions, file writes and clock changes (strict mode).
+- **Failure.** A bad tag, wrong key, repeated counter or any other crypto failure
+  drops the frame and counts it. It never changes the arm state, never starts a
+  failsafe and never blocks the control tasks: failing closed applies to the link
+  only. RC is not NavLink and is not protected by any of this.
+- **Gate.** The time-sync gate on commands (chapter 7) is a timestamp rule, not
+  part of the security layer.
 
 ## Sources
 
