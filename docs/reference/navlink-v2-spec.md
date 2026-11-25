@@ -956,13 +956,15 @@ key with it), which is accepted. Every connection uses a **fresh session key**
 passphrase-wrapped file) and MUST NOT appear in a log, a crash report or a
 configuration file in clear.
 
-**Provisioning and rotation.** Setting or replacing K is permitted only over a
-wired, local link (USB), only while **disarmed**, only when no secured session is
-active, and within a window after boot. It MUST NOT be possible over a wireless
-link, in flight, or over a secured session (a stolen GCS must not be able to
-rotate the vehicle away from its owner). Revoking a lost GCS means replacing K
-over USB. An unkeyed FC behaves as an unsecured FC and advertises
-`sec_modes = none`.
+**Provisioning and rotation (decision D5).** Setting, replacing or removing K is
+permitted only over the **USB** link, only while **disarmed**, only when no
+secured session is active, and only within a fixed window after boot (a build-time
+setting; 60 s is the recommended length). It MUST NOT be possible over any
+wireless link, over any other serial link, in flight, or over a secured session (a
+stolen GCS must not be able to rotate the vehicle away from its owner). No
+physical action (button, jumper) is required by this specification. Revoking a
+lost GCS means replacing K over USB. An unkeyed FC behaves as an unsecured FC and
+advertises `sec_modes = none`.
 
 An **X25519 (ECDH) handshake** for forward secrecy MAY be added later, negotiated
 via `CAPABILITIES`; it is not part of the first cut.
