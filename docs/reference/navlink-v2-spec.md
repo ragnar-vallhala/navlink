@@ -1003,8 +1003,16 @@ exhausted, no secured session is established (the link fails closed, see §11.10
 within a boot, so replaying a captured HELLO in the same boot still yields a
 different `Ks`. The FC also remembers recent `gcs_nonce` values and drops a
 repeat. Handshake attempts are rate-limited (at most one per second) so they
-cannot be used to burn CPU. The exact message layouts and ids are defined with the
-dialect change that implements this section.
+cannot be used to burn CPU.
+
+The two handshake messages travel in the clear (`HS_HELLO` id 6, `HS_REPLY` id 7):
+`HS_HELLO` is `gcs_nonce[16]`. `HS_REPLY` is `gcs_nonce[16]` (echoed), `fc_boot_ctr`
+(u32), `fc_hs_ctr` (u32), `uid[12]` and `mac[16]`, where `mac` is BLAKE2b-128 keyed with
+K over the ASCII label `navlink-hs-reply` followed by those same fields in order,
+integers little-endian. The ground station computes the mac over its **own** nonce and
+accepts the reply only if it matches and the echoed nonce is its own, so a reply made
+for any other HELLO fails; it takes at most one reply per HELLO. A reply proves the
+vehicle holds K; it does not by itself make a session live (above).
 
 **A HELLO creates a pending session, never a live one.** `HELLO` is not
 authenticated (the vehicle cannot yet know who sent it), so accepting one MUST NOT
@@ -1148,6 +1156,8 @@ Field-level detail is in the dialect (§7); this is the index.
 | 4 | `STATUSTEXT` | severity, text[50], id, chunk_seq |
 | 5 | `COMMAND_ACK` | command:u24, req_seq, result, progress, result_param2 |
 | 8 | `PING` | seq, target |
+| 6 | `HS_HELLO` | gcs_nonce[16] (§11.9) |
+| 7 | `HS_REPLY` | gcs_nonce[16], fc_boot_ctr, fc_hs_ctr, uid[12], mac[16] (§11.9) |
 | 9 | `CAPABILITIES` | protocol_version, incompat_supported, msgid_ranges, sec_modes, key_id |
 | 10 | `TIME_SYNC` | role, seq, t1_gcs_tx, t2_fc_rx, t3_fc_tx, commanded_offset_ms (one role-discriminated round-trip message, §10) |
 | 11 | `FAULT_STATUS` | id:u16, severity, active, text[50] — one raised/cleared fault per frame (§14.1.1) |
