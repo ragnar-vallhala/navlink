@@ -80,7 +80,7 @@ A NavLink v2 frame is:
 ```
 
 The header is a **fixed 10 bytes** (offsets 0–9). The trailer is either a
-2-byte CRC (unsecured) or a `[counter:6][tag:N]` secured trailer (§11).
+2-byte CRC (unsecured) or a `[counter:6][tag:16]` secured trailer (§11).
 
 ### 3.2 Header layout (normative)
 
@@ -159,7 +159,8 @@ emit two secured frames with the same `(sysid, compid, seq, counter)` under one 
 | header | 10 bytes |
 | payload | 0–255 bytes (single frame); larger via §12.4 |
 | unsecured trailer | 2 bytes (CRC-16) or 4 bytes (`IFLAG_CRC32`) |
-| secured trailer | `6 + N` bytes, `N ∈ {8, 16}` (§11.2) |
+| secured trailer | 22 bytes: 6 counter + 16 tag (§11.2) |
+| max secured frame | 287 bytes (10 + 255 + 22); implementations size every frame buffer for it |
 | min frame | 12 bytes (10 header + 0 payload + 2 CRC) |
 | max unsecured frame | 267 bytes (10 + 255 + 2) |
 
@@ -861,9 +862,9 @@ by `ENABLE_NAVLINK_CRYPTO` and advertised in `CAPABILITIES` (§13):
 
 Both use one **AEAD** construction (no separate encrypt-then-MAC). The header is
 associated data, so addressing stays readable for routing and framing; only the
-payload is encrypted (for `IFLAG_ENCRYPTED`). The tag length N is fixed per link
-by configuration and advertised in `CAPABILITIES.sec_modes`; it is not in the
-frame, so both ends MUST agree on it before a session starts.
+payload is encrypted (for `IFLAG_ENCRYPTED`). The tag is **16 bytes everywhere**
+(decision D6): no truncated tag, no per-link or per-direction length, so there is
+nothing to negotiate or to downgrade.
 
 **Same on every link (decision D2).** The security policy does not depend on the
 transport: USB, a serial radio and a wireless bridge are all treated alike. Once a
@@ -879,14 +880,14 @@ transport.
 When a security flag is set the 2-byte CRC is **absent**, replaced by:
 
 ```
-[ counter : 6 ][ tag : N ]      N = 16 (full Poly1305/GCM) or 8 (truncated)
+[ counter : 6 ][ tag : 16 ]      the full Poly1305/GCM tag, never truncated
 ```
 
 - `counter`: 48-bit frame counter, little-endian, per (session, direction),
   starting at 0 and strictly increasing by at least 1 for each secured frame the
   sender emits. It is not a time.
 - `tag`: AEAD tag over (AAD ∥ ciphertext), where
-  AAD = header bytes `1 … 9` ∥ `tag_len` (1 byte) ∥ `dir` (1 byte).
+  AAD = header bytes `1 … 9` ∥ `tag_len` (1 byte, always 16) ∥ `dir` (1 byte).
   Header bytes 1..9 already cover the version, `payload_len`, `incompat_flags`,
   `seq`, `sysid`, `compid` and the 24-bit `msgid`; `tag_len` and `dir` are added
   so neither can be altered or confused. `dir = 0` for FC→GCS, `1` for GCS→FC.
@@ -1444,7 +1445,7 @@ MUST:
 
 ### 16.4 Secured frame
 
-With `IFLAG_ENCRYPTED`, a frame MUST: carry no CRC; carry `[counter:6][tag:N]`;
+With `IFLAG_ENCRYPTED`, a frame MUST: carry no CRC; carry `[counter:6][tag:16]`;
 use the §11.4 nonce under the session subkey of its direction; verify the tag
 over (AAD ∥ ciphertext) with AAD = header[1..9] ∥ tag_len ∥ dir; be rejected if
 its `counter` is not strictly greater than the last accepted in that

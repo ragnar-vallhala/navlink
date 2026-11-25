@@ -71,8 +71,8 @@ follows is what the specification requires of a layer that you would add.
   session exists every frame, both ways, is encrypted and authenticated, except
   `HEARTBEAT`, `CAPABILITIES` and the handshake.
 - **Trailer.** The 2-byte CRC is replaced by a 6-byte frame counter and an
-  authentication tag of 16 bytes, or 8 if truncated. The tag length is fixed per
-  link, not carried in the frame.
+  authentication tag of 16 bytes, never truncated, on every link and in both
+  directions. A secured frame is up to 287 bytes.
 - **Cipher.** ChaCha20-Poly1305 by default, chosen because it is fast and
   constant-time in software on a Cortex-M4 with no crypto hardware. AES-GCM or
   AES-CCM may be used where hardware AES exists. A vetted library must be used,
