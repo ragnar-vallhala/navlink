@@ -90,7 +90,8 @@ add_library(navlink::navlink ALIAS navlink)
 # plus sec/navlink_sec.c. A separate target on purpose: nothing links it unless
 # the consumer asks (the ENABLE_NAVLINK_CRYPTO gate), so a build without it is
 # byte-identical to today.
-add_library(navlink_sec STATIC sec/navlink_sec.c vendor/monocypher/monocypher.c)
+add_library(navlink_sec STATIC sec/navlink_sec.c sec/navlink_sess.c
+            vendor/monocypher/monocypher.c)
 target_include_directories(navlink_sec PUBLIC sec vendor/monocypher)
 set_target_properties(navlink_sec PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
 add_library(navlink::sec ALIAS navlink_sec)
@@ -132,6 +133,16 @@ if(NAVLINK_SANITIZE)
 endif()
 add_test(NAME test_sec_c COMMAND test_sec_c)
 
+add_executable(test_sess_c tests/test_sess.c)
+target_link_libraries(test_sess_c PRIVATE navlink_sec navlink)
+target_compile_options(test_sess_c PRIVATE -std=c11 -Wall -Wextra -Werror -UNDEBUG)
+if(NAVLINK_SANITIZE)
+  target_compile_options(test_sess_c PRIVATE -fsanitize=address,undefined
+                                             -fno-omit-frame-pointer)
+  target_link_options(test_sess_c PRIVATE -fsanitize=address,undefined)
+endif()
+add_test(NAME test_sess_c COMMAND test_sess_c)
+
 # --- the Python side ---
 # Each test reads generated/, so generation is a ctest fixture rather than
 # something each test re-does or each runner has to know to sequence.
@@ -139,7 +150,7 @@ add_test(NAME generate
          COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/generate.py)
 set_tests_properties(generate PROPERTIES FIXTURES_SETUP navlink_gen)
 
-set(PY_TESTS test_codec test_xfer_loopback test_fs_nav_loopback test_sec)
+set(PY_TESTS test_codec test_xfer_loopback test_fs_nav_loopback test_sec test_sess)
 foreach(t ${PY_TESTS})
   add_test(NAME ${t}
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/${t}.py)
