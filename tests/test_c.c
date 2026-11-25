@@ -488,7 +488,7 @@ int main(void) {
     memset(&m, 0, sizeof m);
     m.batt_level = NAVLINK_BATT_LEVEL_LAND;
     m.land_cause = NAVLINK_LANDING_CAUSE_BATT | NAVLINK_LANDING_CAUSE_RC_LOSS;
-    m.flags = NAVLINK_FAILSAFE_FLAGS_LANDING;
+    m.flags = NAVLINK_FAILSAFE_FLAGS_LANDING | NAVLINK_FAILSAFE_FLAGS_GPS_UNTRUSTED;
     m.arm_refusal = NAVLINK_ARM_REFUSAL_BATTERY_LOW;
     m.cells = 3;
     navlink_failsafe_status_wire_t w;
@@ -498,7 +498,7 @@ int main(void) {
     navlink_failsafe_status_pack(pl, &w);
     assert(NAVLINK_MSGID_FAILSAFE_STATUS == 1051u);
     assert(NAVLINK_WIRE_SIZE_FAILSAFE_STATUS == 5u);
-    assert(pl[0] == 2 && pl[1] == 5 && pl[2] == 1 && pl[3] == 7 && pl[4] == 3);
+    assert(pl[0] == 2 && pl[1] == 5 && pl[2] == 9 && pl[3] == 7 && pl[4] == 3);
     uint8_t fr[NAVLINK_MAX_FRAME];
     size_t n = navlink_failsafe_status_encode(fr, &m, 3, 1, 1);
     struct failsafe_cap cap = { 0, { 0 } };
@@ -511,6 +511,8 @@ int main(void) {
     navlink_parser_push(&p, &h, fr, n);
     assert(cap.n == 1);
     assert(cap.m.batt_level == 2 && cap.m.land_cause == 5 && cap.m.cells == 3);
+    assert(cap.m.flags == 9);
+    assert(NAVLINK_FAILSAFE_FLAGS_GPS_UNTRUSTED == 8u);
     assert(NAVLINK_CAPABILITY_FAILSAFE_STATUS == 1u);
   }
 

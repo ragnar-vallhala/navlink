@@ -833,6 +833,12 @@ class TestFailsafeStatus(unittest.TestCase):
         self.assertEqual((e["RC_LOSS"], e["ESTIMATOR"], e["BATT"], e["BATT_CRIT"]),
                          (1, 2, 4, 8))
 
+    def test_failsafe_flag_values_are_fixed(self):
+        # Wire values a consumer hard-codes; an appended bit never moves one.
+        e = self._enum("failsafe_flags")
+        self.assertEqual((e["LANDING"], e["PILOT_TOOK_OVER"], e["BATT_UNTRUSTED"],
+                          e["GPS_UNTRUSTED"]), (1, 2, 4, 8))
+
     def test_levels_and_refusals_are_unique_and_ordered(self):
         lv = self._enum("batt_level")
         self.assertEqual([lv[k] for k in ("OK", "WARN", "LAND", "CRITICAL")], [0, 1, 2, 3])

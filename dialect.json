@@ -219,12 +219,13 @@
     },
     "failsafe_flags": {
       "section": "flight.state",
-      "doc": "FAILSAFE_STATUS.flags bitmask. LANDING: an automatic landing is under way (land_cause is not 0). PILOT_TOOK_OVER: the pilot cancelled a battery landing with a mode-switch move; it is not started again at that level. BATT_UNTRUSTED: the pack voltage cannot be believed right now, so batt_level is the last believed one, not a current one.",
+      "doc": "FAILSAFE_STATUS.flags bitmask. LANDING: an automatic landing is under way (land_cause is not 0). PILOT_TOOK_OVER: the pilot cancelled a battery landing with a mode-switch move; it is not started again at that level. BATT_UNTRUSTED: the pack voltage cannot be believed right now, so batt_level is the last believed one, not a current one. GPS_UNTRUSTED: a GPS receiver has been heard on this flight controller and its fix cannot be believed right now (no fix, too few satellites, reports stopped or stuck, or a position jump the motion does not explain); it is information only and changes no control. It is never set on a board with no receiver, or before one has been heard, so absent means unknown, not good.",
       "entries": [
         { "name": "NONE",           "value": 0 },
         { "name": "LANDING",        "value": 1 },
         { "name": "PILOT_TOOK_OVER","value": 2 },
-        { "name": "BATT_UNTRUSTED", "value": 4 }
+        { "name": "BATT_UNTRUSTED", "value": 4 },
+        { "name": "GPS_UNTRUSTED",  "value": 8 }
       ]
     },
     "arm_refusal": {
