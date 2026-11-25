@@ -32,7 +32,7 @@ jobs:
       # test_codec validates dialect.json against dialect.schema.json (spec
       # §7.4) and skips that check when jsonschema is absent -- so install it
       # here, where the check has to actually run.
-      - run: pip install jsonschema
+      - run: pip install jsonschema cryptography
       - name: scripts/test.sh
         run: scripts/test.sh
 
