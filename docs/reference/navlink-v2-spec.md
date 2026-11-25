@@ -1012,7 +1012,9 @@ K over the ASCII label `navlink-hs-reply` followed by those same fields in order
 integers little-endian. The ground station computes the mac over its **own** nonce and
 accepts the reply only if it matches and the echoed nonce is its own, so a reply made
 for any other HELLO fails; it takes at most one reply per HELLO. A reply proves the
-vehicle holds K; it does not by itself make a session live (above).
+vehicle holds K; it does not by itself make a session live (above). The ground station MUST also compare the authenticated `uid` with the vehicle it meant to reach: the mac only proves the replier holds K, and vehicles that share K on one link could otherwise answer for each other.
+
+The ground station drops its old keys when it sends its first frame under the new ones, while the vehicle drops an unconfirmed pending session after 5 s and keeps the old live one. If that first frame, and every frame in the next 5 s, is lost, neither side can read the other. The ground station therefore MUST send a new HELLO when no vehicle frame has verified under the new keys within 3 s of switching (a single lost frame followed by another inside the window is fine: any frame that verifies promotes).
 
 **A HELLO creates a pending session, never a live one.** `HELLO` is not
 authenticated (the vehicle cannot yet know who sent it), so accepting one MUST NOT

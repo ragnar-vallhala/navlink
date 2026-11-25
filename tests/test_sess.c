@@ -36,6 +36,9 @@ static const navlink_sec_hdr_t H = {1, 1, 1, 7, 4};
 static const uint8_t PL[4] = {1, 2, 3, 4};
 #define E NAVLINK_SEC_IFLAG_ENCRYPTED
 
+static navlink_hs_info_t INFO;
+static uint32_t NOW;
+
 static void nonce(uint8_t n[16], uint8_t v) { memset(n, v, 16); }
 
 /* One full connect: GCS HELLO, FC reply, GCS first frame, FC verifies it. */
@@ -44,10 +47,10 @@ static void connect_pair(navlink_fc_t *fc, navlink_gcs_t *g, uint32_t t,
   uint8_t n[16], hello[16], reply[52], f[300], out[255];
   navlink_sec_hdr_t h;
   nonce(n, nv);
-  assert(navlink_gcs_hello(g, n, hello) == 16);
+  assert(navlink_gcs_hello(g, n, NULL, hello) == 16);
   assert(navlink_fc_hello(fc, t, hello, reply) == 52);
-  assert(navlink_gcs_reply(g, reply, 52) == 0);
-  int l = navlink_gcs_seal(g, f, sizeof f, E, &H, PL);
+  assert(navlink_gcs_reply(g, reply, 52, &INFO) == 0);
+  int l = navlink_gcs_seal(g, NOW, f, sizeof f, E, &H, PL);
   assert(l > 0);
   assert(navlink_fc_open(fc, t + 10, f, (size_t)l, &h, out) == 4);
 }
@@ -60,11 +63,11 @@ static void test_golden(void) {
     n[i] = (uint8_t)i;
   assert(navlink_fc_init(&fc, K, UID, 7) == 0);
   assert(navlink_gcs_init(&g, K) == 0);
-  navlink_gcs_hello(&g, n, hello);
+  navlink_gcs_hello(&g, n, NULL, hello);
   assert(navlink_fc_hello(&fc, 0, hello, reply) == 52);
   /* fc_hs_ctr is 1 for the first HELLO of a boot; the frame test uses 7 and 3 */
   assert(reply[16] == 7 && reply[20] == 1);
-  assert(navlink_gcs_reply(&g, reply, 52) == 0);
+  assert(navlink_gcs_reply(&g, reply, 52, &INFO) == 0);
   /* the golden reply, reproduced by tests/test_sess.py */
   static const char *GOLD =
       "000102030405060708090a0b0c0d0e0f07000000010000000001020304050607"
@@ -88,7 +91,7 @@ static void test_golden(void) {
   static const char *GOLD_FRAME =
       "56020402010101070000a55eda0400000000000082f8de702737e1001ef44bfc0c07d2a5";
   uint8_t f[300];
-  int l = navlink_gcs_seal(&g, f, sizeof f, E, &H, PL);
+  int l = navlink_gcs_seal(&g, NOW, f, sizeof f, E, &H, PL);
   assert(l == 36);
   for (int i = 0; i < l; i++)
     sprintf(hex + 2 * i, "%02x", f[i]);
@@ -108,10 +111,10 @@ static void test_basic_roundtrip(void) {
   /* both directions work, in order */
   int l = navlink_fc_seal(&fc, f, sizeof f, E, &H, PL);
   assert(l > 0 && navlink_gcs_open(&g, f, (size_t)l, &h, out) == 4);
-  l = navlink_gcs_seal(&g, f, sizeof f, E, &H, PL);
+  l = navlink_gcs_seal(&g, NOW, f, sizeof f, E, &H, PL);
   assert(l > 0 && navlink_fc_open(&fc, 20, f, (size_t)l, &h, out) == 4);
   /* a GCS frame is not accepted as an FC frame and the reverse */
-  l = navlink_gcs_seal(&g, f, sizeof f, E, &H, PL);
+  l = navlink_gcs_seal(&g, NOW, f, sizeof f, E, &H, PL);
   assert(navlink_gcs_open(&g, f, (size_t)l, &h, out) < 0);
 }
 
@@ -127,7 +130,7 @@ static void test_hello_during_live_session(void) {
   nonce(n, 0x66);
   assert(navlink_fc_hello(&fc, 2000, n, reply) == 52);
   for (int i = 0; i < 5; i++) {
-    int l = navlink_gcs_seal(&g, f, sizeof f, E, &H, PL);
+    int l = navlink_gcs_seal(&g, NOW, f, sizeof f, E, &H, PL);
     assert(navlink_fc_open(&fc, 2100 + i, f, (size_t)l, &h, out) == 4);
     l = navlink_fc_seal(&fc, f, sizeof f, E, &H, PL);
     assert(navlink_gcs_open(&g, f, (size_t)l, &h, out) == 4);
@@ -139,7 +142,7 @@ static void test_hello_during_live_session(void) {
   /* it expires after 5 s, live untouched */
   navlink_fc_tick(&fc, 2000 + NAVLINK_SESS_PENDING_MS);
   assert(!fc.pending.valid && fc.live.valid);
-  int l = navlink_gcs_seal(&g, f, sizeof f, E, &H, PL);
+  int l = navlink_gcs_seal(&g, NOW, f, sizeof f, E, &H, PL);
   assert(navlink_fc_open(&fc, 8000, f, (size_t)l, &h, out) == 4);
   (void)hello;
 }
@@ -153,18 +156,18 @@ static void test_promotion_and_old_session(void) {
   assert(navlink_gcs_init(&g1, K) == 0);
   assert(navlink_gcs_init(&g2, K) == 0);
   connect_pair(&fc, &g1, 0, 1);
-  int l1 = navlink_gcs_seal(&g1, f1, sizeof f1, E, &H, PL);
+  int l1 = navlink_gcs_seal(&g1, NOW, f1, sizeof f1, E, &H, PL);
   /* the real GCS reconnects (restart): HELLO, reply, first frame */
   nonce(n, 2);
-  navlink_gcs_hello(&g2, n, hello);
+  navlink_gcs_hello(&g2, n, NULL, hello);
   assert(navlink_fc_hello(&fc, 3000, hello, reply) == 52);
-  assert(navlink_gcs_reply(&g2, reply, 52) == 0);
+  assert(navlink_gcs_reply(&g2, reply, 52, &INFO) == 0);
   /* before the first frame, the old session still works */
   assert(navlink_fc_open(&fc, 3100, f1, (size_t)l1, &h, out) == 4);
-  int l2 = navlink_gcs_seal(&g2, f2, sizeof f2, E, &H, PL);
+  int l2 = navlink_gcs_seal(&g2, NOW, f2, sizeof f2, E, &H, PL);
   assert(navlink_fc_open(&fc, 3200, f2, (size_t)l2, &h, out) == 4);
   /* promoted: the old session's next frame no longer verifies */
-  l1 = navlink_gcs_seal(&g1, f1, sizeof f1, E, &H, PL);
+  l1 = navlink_gcs_seal(&g1, NOW, f1, sizeof f1, E, &H, PL);
   assert(navlink_fc_open(&fc, 3300, f1, (size_t)l1, &h, out) < 0);
   /* and the FC now talks under the new keys, which g2 reads */
   int l = navlink_fc_seal(&fc, f2, sizeof f2, E, &H, PL);
@@ -246,26 +249,26 @@ static void test_reply_checks(void) {
   assert(navlink_fc_init(&fc, K, UID, 7) == 0);
   assert(navlink_gcs_init(&g, K) == 0);
   nonce(n, 1);
-  navlink_gcs_hello(&g, n, hello);
+  navlink_gcs_hello(&g, n, NULL, hello);
   assert(navlink_fc_hello(&fc, 0, hello, reply) == 52);
   /* every bit of the reply matters */
   for (int b = 0; b < 52 * 8; b++) {
     memcpy(bad, reply, 52);
     bad[b / 8] ^= (uint8_t)(1u << (b % 8));
-    assert(navlink_gcs_reply(&g, bad, 52) == NAVLINK_SESS_ERR_REPLY);
+    assert(navlink_gcs_reply(&g, bad, 52, &INFO) == NAVLINK_SESS_ERR_REPLY);
     assert(!g.next.valid && g.waiting);
   }
-  assert(navlink_gcs_reply(&g, reply, 51) == NAVLINK_SEC_ERR_SIZE);
+  assert(navlink_gcs_reply(&g, reply, 51, &INFO) == NAVLINK_SEC_ERR_SIZE);
   /* the genuine reply is taken once; a second copy is refused */
-  assert(navlink_gcs_reply(&g, reply, 52) == 0);
-  assert(navlink_gcs_reply(&g, reply, 52) == NAVLINK_SESS_ERR_REPLY);
+  assert(navlink_gcs_reply(&g, reply, 52, &INFO) == 0);
+  assert(navlink_gcs_reply(&g, reply, 52, &INFO) == NAVLINK_SESS_ERR_REPLY);
   /* a reply made for an earlier HELLO is refused by a GCS that sent a new one */
   nonce(n, 2);
-  navlink_gcs_hello(&g, n, hello);
-  assert(navlink_gcs_reply(&g, reply, 52) == NAVLINK_SESS_ERR_REPLY);
+  navlink_gcs_hello(&g, n, NULL, hello);
+  assert(navlink_gcs_reply(&g, reply, 52, &INFO) == NAVLINK_SESS_ERR_REPLY);
   /* a GCS that never sent a HELLO takes no reply */
   assert(navlink_gcs_init(&g2, K) == 0);
-  assert(navlink_gcs_reply(&g2, reply, 52) == NAVLINK_SESS_ERR_REPLY);
+  assert(navlink_gcs_reply(&g2, reply, 52, &INFO) == NAVLINK_SESS_ERR_REPLY);
   /* wrong K on the GCS side */
   uint8_t k2[32];
   memcpy(k2, K, 32);
@@ -273,8 +276,8 @@ static void test_reply_checks(void) {
   navlink_gcs_t g3;
   assert(navlink_gcs_init(&g3, k2) == 0);
   nonce(n, 1);
-  navlink_gcs_hello(&g3, n, hello);
-  assert(navlink_gcs_reply(&g3, reply, 52) == NAVLINK_SESS_ERR_REPLY);
+  navlink_gcs_hello(&g3, n, NULL, hello);
+  assert(navlink_gcs_reply(&g3, reply, 52, &INFO) == NAVLINK_SESS_ERR_REPLY);
   (void)f;
 }
 
@@ -288,12 +291,12 @@ static void test_wrong_key_gcs_frame(void) {
   assert(navlink_fc_init(&fc, K, UID, 7) == 0);
   assert(navlink_gcs_init(&g, k2) == 0);
   nonce(n, 3);
-  navlink_gcs_hello(&g, n, hello);
+  navlink_gcs_hello(&g, n, NULL, hello);
   assert(navlink_fc_hello(&fc, 0, hello, reply) == 52);
   /* the GCS with the wrong key rejects the reply, so it has no session; even a
    * session built by force from its own key does not promote */
-  assert(navlink_gcs_reply(&g, reply, 52) == NAVLINK_SESS_ERR_REPLY);
-  assert(navlink_gcs_seal(&g, f, sizeof f, E, &H, PL) == NAVLINK_SESS_ERR_NOSESSION);
+  assert(navlink_gcs_reply(&g, reply, 52, &INFO) == NAVLINK_SESS_ERR_REPLY);
+  assert(navlink_gcs_seal(&g, NOW, f, sizeof f, E, &H, PL) == NAVLINK_SESS_ERR_NOSESSION);
   assert(navlink_fc_open(&fc, 10, reply, 52, &h, out) < 0);
   assert(fc.pending.valid && !fc.live.valid);
 }
@@ -328,6 +331,85 @@ static void test_max_frame_through_session(void) {
   assert(navlink_gcs_open(&g, f, (size_t)l, &h, out) == 255);
 }
 
+static void test_lost_first_frame_and_recovery(void) {
+  navlink_fc_t fc;
+  navlink_gcs_t g;
+  navlink_hs_info_t info;
+  uint8_t f1[300], f2[300], f3[300], out[255], hello[16], reply[52], n[16];
+  navlink_sec_hdr_t h;
+  assert(navlink_fc_init(&fc, K, UID, 7) == 0);
+  assert(navlink_gcs_init(&g, K) == 0);
+  assert(!navlink_gcs_needs_hello(&g, 100000));
+
+  /* first GCS frame lost, the second arrives inside the pending window */
+  nonce(n, 1);
+  navlink_gcs_hello(&g, n, NULL, hello);
+  assert(navlink_fc_hello(&fc, 0, hello, reply) == 52);
+  assert(navlink_gcs_reply(&g, reply, 52, &info) == 0);
+  assert(navlink_gcs_seal(&g, 0, f1, sizeof f1, E, &H, PL) > 0); /* lost */
+  int l2 = navlink_gcs_seal(&g, 1000, f2, sizeof f2, E, &H, PL);
+  assert(navlink_fc_open(&fc, 1100, f2, (size_t)l2, &h, out) == 4);
+  assert(fc.live.valid && !fc.pending.valid);
+  int l = navlink_fc_seal(&fc, f3, sizeof f3, E, &H, PL);
+  assert(navlink_gcs_open(&g, f3, (size_t)l, &h, out) == 4);
+  assert(!navlink_gcs_needs_hello(&g, 60000)); /* a vehicle frame verified */
+
+  /* every GCS frame lost for more than 5 s: the vehicle drops the pending
+   * session and keeps the old keys, which the GCS no longer has */
+  nonce(n, 2);
+  navlink_gcs_hello(&g, n, NULL, hello);
+  assert(navlink_fc_hello(&fc, 10000, hello, reply) == 52);
+  assert(navlink_gcs_reply(&g, reply, 52, &info) == 0);
+  for (uint32_t t = 10000; t <= 15000; t += 1000)
+    assert(navlink_gcs_seal(&g, t, f1, sizeof f1, E, &H, PL) > 0); /* all lost */
+  assert(navlink_fc_open(&fc, 16000, f1, 36, &h, out) < 0);
+  assert(!fc.pending.valid && fc.live.valid);
+  l = navlink_fc_seal(&fc, f3, sizeof f3, E, &H, PL); /* old keys: unreadable */
+  assert(navlink_gcs_open(&g, f3, (size_t)l, &h, out) < 0);
+  assert(!navlink_gcs_needs_hello(&g, 10000 + NAVLINK_SESS_GCS_RESYNC_MS - 1));
+  assert(navlink_gcs_needs_hello(&g, 10000 + NAVLINK_SESS_GCS_RESYNC_MS));
+  /* the re-HELLO recovers it */
+  nonce(n, 3);
+  navlink_gcs_hello(&g, n, NULL, hello);
+  assert(navlink_fc_hello(&fc, 16500, hello, reply) == 52);
+  assert(navlink_gcs_reply(&g, reply, 52, &info) == 0);
+  l2 = navlink_gcs_seal(&g, 16500, f2, sizeof f2, E, &H, PL);
+  assert(navlink_fc_open(&fc, 16600, f2, (size_t)l2, &h, out) == 4);
+  l = navlink_fc_seal(&fc, f3, sizeof f3, E, &H, PL);
+  assert(navlink_gcs_open(&g, f3, (size_t)l, &h, out) == 4);
+  assert(!navlink_gcs_needs_hello(&g, 90000));
+}
+
+static void test_uid_is_reported_and_checked(void) {
+  navlink_fc_t fc, other;
+  navlink_gcs_t g;
+  navlink_hs_info_t info;
+  uint8_t uid2[12], hello[16], r_other[52], r_ours[52], n[16];
+  memcpy(uid2, UID, 12);
+  uid2[11] ^= 0x80;
+  assert(navlink_fc_init(&fc, K, UID, 7) == 0);
+  assert(navlink_fc_init(&other, K, uid2, 9) == 0); /* same K, another vehicle */
+  assert(navlink_gcs_init(&g, K) == 0);
+  nonce(n, 1);
+  /* a ground station that named the vehicle it wants: the other one's authentic
+   * reply is reported and refused, and it keeps waiting for the right one */
+  navlink_gcs_hello(&g, n, UID, hello);
+  assert(navlink_fc_hello(&other, 0, hello, r_other) == 52);
+  assert(navlink_fc_hello(&fc, 0, hello, r_ours) == 52);
+  memset(&info, 0, sizeof info);
+  assert(navlink_gcs_reply(&g, r_other, 52, &info) == NAVLINK_SESS_ERR_UID);
+  assert(memcmp(info.uid, uid2, 12) == 0 && info.fc_boot_ctr == 9u);
+  assert(!g.next.valid && g.waiting);
+  assert(navlink_gcs_reply(&g, r_ours, 52, &info) == 0);
+  assert(memcmp(info.uid, UID, 12) == 0 && info.fc_boot_ctr == 7u &&
+         info.fc_hs_ctr == 1u);
+  assert(g.next.valid && !g.waiting);
+  /* without a named vehicle the reply is taken, and the uid is there to compare */
+  navlink_gcs_hello(&g, n, NULL, hello);
+  assert(navlink_gcs_reply(&g, r_other, 52, &info) == 0);
+  assert(memcmp(info.uid, uid2, 12) == 0);
+}
+
 int main(void) {
   test_golden();
   test_basic_roundtrip();
@@ -340,6 +422,8 @@ int main(void) {
   test_wrong_key_gcs_frame();
   test_exhaustion();
   test_max_frame_through_session();
+  test_lost_first_frame_and_recovery();
+  test_uid_is_reported_and_checked();
   puts("test_sess: ok");
   return 0;
 }

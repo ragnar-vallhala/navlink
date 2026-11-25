@@ -32,6 +32,9 @@ GOLD_REPLY = ("000102030405060708090a0b0c0d0e0f070000000100000000010203040506070
 GOLD_FRAME = "56020402010101070000a55eda0400000000000082f8de702737e1001ef44bfc0c07d2a5"
 
 
+NOW = 0.0
+
+
 def nonce(v):
     return bytes([v]) * 16
 
@@ -48,7 +51,7 @@ def err(fn, what, cls=hs.HsError):
 def connect(fc, g, t, v):
     r = fc.hello(t, g.hello(nonce(v)))
     g.take_reply(r)
-    f = g.seal(1, 1, 1, 7, PL)
+    f = g.seal(t, 1, 1, 1, 7, PL)
     assert fc.open(t + 0.01, f)[1] == PL
 
 
@@ -57,7 +60,7 @@ def test_golden():
     r = fc.hello(0, g.hello(bytes(range(16))))
     assert r.hex() == GOLD_REPLY
     g.take_reply(r)
-    assert g.seal(1, 1, 1, 7, PL).hex() == GOLD_FRAME
+    assert g.seal(0.0, 1, 1, 1, 7, PL).hex() == GOLD_FRAME
 
 
 def test_hello_during_live():
@@ -65,7 +68,7 @@ def test_hello_during_live():
     connect(fc, g, 0, 1)
     fc.hello(2.0, nonce(0x66))
     for i in range(5):
-        assert fc.open(2.1 + i, g.seal(1, 1, 1, 7, PL))[1] == PL
+        assert fc.open(2.1 + i, g.seal(NOW, 1, 1, 1, 7, PL))[1] == PL
         assert g.open(fc.seal(1, 1, 1, 7, PL))[1] == PL
     try:
         fc.open(2.2, b"\x55" * 40)
@@ -75,18 +78,18 @@ def test_hello_during_live():
     assert fc.pending and fc.live
     fc.tick(2.0 + hs.PENDING_S)
     assert fc.pending is None and fc.live
-    assert fc.open(8.0, g.seal(1, 1, 1, 7, PL))[1] == PL
+    assert fc.open(8.0, g.seal(NOW, 1, 1, 1, 7, PL))[1] == PL
 
 
 def test_promotion():
     fc, g1, g2 = hs.Fc(k, uid, 7), hs.Gcs(k), hs.Gcs(k)
     connect(fc, g1, 0, 1)
-    f1 = g1.seal(1, 1, 1, 7, PL)
+    f1 = g1.seal(NOW, 1, 1, 1, 7, PL)
     g2.take_reply(fc.hello(3.0, g2.hello(nonce(2))))
     assert fc.open(3.1, f1)[1] == PL
-    assert fc.open(3.2, g2.seal(1, 1, 1, 7, PL))[1] == PL
+    assert fc.open(3.2, g2.seal(NOW, 1, 1, 1, 7, PL))[1] == PL
     try:
-        fc.open(3.3, g1.seal(1, 1, 1, 7, PL))
+        fc.open(3.3, g1.seal(NOW, 1, 1, 1, 7, PL))
         raise AssertionError("old session accepted")
     except sec.SecError:
         pass
@@ -135,6 +138,54 @@ def test_keys_and_exhaustion():
     fc.hello(0, nonce(1))
     err(lambda: fc.hello(2.0, nonce(2)), "closed")
     err(lambda: fc.hello(9.0, nonce(3)), "closed")
+
+
+def test_lost_first_frame_and_recovery():
+    fc, g = hs.Fc(k, uid, 7), hs.Gcs(k)
+    assert not g.needs_hello(100.0)
+    g.take_reply(fc.hello(0.0, g.hello(nonce(1))))
+    g.seal(0.0, 1, 1, 1, 7, PL)                         # lost
+    f2 = g.seal(1.0, 1, 1, 1, 7, PL)
+    assert fc.open(1.1, f2)[1] == PL and fc.live and not fc.pending
+    assert g.open(fc.seal(1, 1, 1, 7, PL))[1] == PL
+    assert not g.needs_hello(60.0)
+    # every GCS frame lost for more than 5 s
+    g.take_reply(fc.hello(10.0, g.hello(nonce(2))))
+    lost = [g.seal(10.0 + i, 1, 1, 1, 7, PL) for i in range(6)]
+    try:
+        fc.open(16.0, lost[-1])
+        raise AssertionError("expired pending accepted")
+    except sec.SecError:
+        pass
+    assert fc.pending is None and fc.live
+    try:
+        g.open(fc.seal(1, 1, 1, 7, PL))
+        raise AssertionError("old keys readable")
+    except sec.SecError:
+        pass
+    assert not g.needs_hello(10.0 + hs.GCS_RESYNC_S - 0.001)
+    assert g.needs_hello(10.0 + hs.GCS_RESYNC_S)
+    g.take_reply(fc.hello(16.5, g.hello(nonce(3))))
+    assert fc.open(16.6, g.seal(16.5, 1, 1, 1, 7, PL))[1] == PL
+    assert g.open(fc.seal(1, 1, 1, 7, PL))[1] == PL
+    assert not g.needs_hello(90.0)
+
+
+def test_uid_reported_and_checked():
+    uid2 = uid[:11] + bytes([uid[11] ^ 0x80])
+    fc, other, g = hs.Fc(k, uid, 7), hs.Fc(k, uid2, 9), hs.Gcs(k)
+    h = g.hello(nonce(1), uid)
+    r_other, r_ours = other.hello(0.0, h), fc.hello(0.0, h)
+    try:
+        g.take_reply(r_other)
+        raise AssertionError("other vehicle taken")
+    except hs.HsError as e:
+        assert str(e) == "uid" and e.info["uid"] == uid2 and e.info["boot"] == 9
+    assert g.next is None and g.nonce is not None
+    info = g.take_reply(r_ours)
+    assert info == {"uid": uid, "boot": 7, "hs": 1} and g.next
+    g.hello(nonce(1))
+    assert g.take_reply(r_other)["uid"] == uid2
 
 
 def test_full_frame():

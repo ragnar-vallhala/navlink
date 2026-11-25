@@ -42,11 +42,15 @@
 #define NAVLINK_SESS_PENDING_MS 5000u
 #define NAVLINK_SESS_HELLO_MIN_GAP_MS 1000u
 #define NAVLINK_SESS_NONCE_RING 8
+/* Ground station: no vehicle frame has verified this long after switching to new
+ * keys means the switch did not take (see navlink_gcs_needs_hello). */
+#define NAVLINK_SESS_GCS_RESYNC_MS 3000u
 
 #define NAVLINK_SESS_ERR_RATE (-10)    /* HELLO inside the 1/s limit: dropped */
 #define NAVLINK_SESS_ERR_REPEAT (-11)  /* gcs_nonce seen recently: dropped */
 #define NAVLINK_SESS_ERR_NOSESSION (-12)
 #define NAVLINK_SESS_ERR_REPLY (-13)   /* reply does not authenticate */
+#define NAVLINK_SESS_ERR_UID (-14)     /* authentic reply, but not the expected vehicle */
 
 /* Both directions of one session, seen from one side. */
 typedef struct {
@@ -71,10 +75,22 @@ typedef struct {
   uint8_t nonce_next;
 } navlink_fc_t;
 
+/* What an authentic reply said about the vehicle. */
+typedef struct {
+  uint8_t uid[12];
+  uint32_t fc_boot_ctr;
+  uint32_t fc_hs_ctr;
+} navlink_hs_info_t;
+
 typedef struct {
   uint8_t k[NAVLINK_SEC_KEY_LEN];
   uint8_t nonce[16];
+  uint8_t expect_uid[12];
+  uint8_t have_expect;
   uint8_t waiting; /* a HELLO is out and no reply has been taken */
+  uint8_t switched;     /* the newest session went live and no vehicle frame has */
+  uint8_t fc_verified;  /* verified under it yet */
+  uint32_t switched_ms;
   navlink_session_t live;
   navlink_session_t next; /* derived, becomes live on the first frame we send */
 } navlink_gcs_t;
@@ -112,19 +128,43 @@ int navlink_gcs_init(navlink_gcs_t *g, const uint8_t k[32]);
 void navlink_gcs_wipe(navlink_gcs_t *g);
 
 /* Remember the 16 fresh random bytes the caller drew and write them to hello
- * (NAVLINK_HS_HELLO_LEN bytes) for sending. */
+ * (NAVLINK_HS_HELLO_LEN bytes) for sending.
+ *
+ * expect_uid is the UID of the vehicle the caller means to reach (12 bytes), or
+ * NULL. The mac only proves the replier holds K; vehicles that share K on one
+ * link would otherwise answer for each other. The caller MUST pass the UID it
+ * means to reach, or else compare info->uid from navlink_gcs_reply itself. */
 int navlink_gcs_hello(navlink_gcs_t *g, const uint8_t gcs_nonce[16],
-                      uint8_t *hello);
+                      const uint8_t *expect_uid, uint8_t *hello);
 
 /* Take the vehicle's reply. It must echo our nonce and carry the right mac;
- * otherwise nothing changes. On success the new session is held as `next`. A
- * second copy of the same reply is refused. */
-int navlink_gcs_reply(navlink_gcs_t *g, const uint8_t *reply, size_t len);
+ * otherwise nothing changes. On success the new session is held as `next` and
+ * info (required) is filled with the authenticated UID and counters. A second
+ * copy of the same reply is refused. If an expected UID was given to
+ * navlink_gcs_hello and this reply is from another vehicle, info is still filled
+ * (so the caller can report it) but the reply is NOT taken: NAVLINK_SESS_ERR_UID,
+ * and the ground station keeps waiting for the right one. */
+int navlink_gcs_reply(navlink_gcs_t *g, const uint8_t *reply, size_t len,
+                      navlink_hs_info_t *info);
 
 /* Seal under the newest session; the first call after a reply makes the new
- * session live (this first frame is what promotes it on the vehicle). */
-int navlink_gcs_seal(navlink_gcs_t *g, uint8_t *out, size_t cap, uint8_t iflags,
-                     const navlink_sec_hdr_t *hdr, const uint8_t *payload);
+ * session live (this first frame is what promotes it on the vehicle) and drops
+ * the old keys.
+ *
+ * LIVENESS. The vehicle discards an unconfirmed pending session after
+ * NAVLINK_SESS_PENDING_MS and keeps the OLD live one, but this side has already
+ * dropped the old keys. If the first frame, and every frame in the next 5 s, is
+ * lost, neither side can read the other until a new HELLO. So the ground station
+ * MUST poll navlink_gcs_needs_hello() and, when it returns 1, send a new HELLO. A
+ * frame lost but followed by another within 5 s is fine: any frame that verifies
+ * promotes. */
+int navlink_gcs_seal(navlink_gcs_t *g, uint32_t now_ms, uint8_t *out, size_t cap,
+                     uint8_t iflags, const navlink_sec_hdr_t *hdr,
+                     const uint8_t *payload);
+
+/* 1 if the session went live NAVLINK_SESS_GCS_RESYNC_MS or more ago and no vehicle
+ * frame has verified under it: the switch did not take, send a new HELLO. */
+int navlink_gcs_needs_hello(const navlink_gcs_t *g, uint32_t now_ms);
 
 int navlink_gcs_open(navlink_gcs_t *g, const uint8_t *frame, size_t len,
                      navlink_sec_hdr_t *hdr, uint8_t *payload_out);

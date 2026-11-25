@@ -25,6 +25,7 @@ import navlink_sec as sec
 HELLO_LEN = 16
 REPLY_LEN = 52
 PENDING_S = 5.0
+GCS_RESYNC_S = 3.0
 HELLO_MIN_GAP_S = 1.0
 NONCE_RING = 8
 
@@ -52,26 +53,37 @@ def _session(k, fc_side, nonce, boot, hs, uid):
 
 class Gcs:
     def __init__(self, k):
-        self.k, self.nonce, self.live, self.next = k, None, None, None
+        self.k, self.nonce, self.expect_uid = k, None, None
+        self.live, self.next = None, None
+        self.switched_at, self.fc_verified = None, False
 
-    def hello(self, nonce):
+    def hello(self, nonce, expect_uid=None):
         assert len(nonce) == 16
-        self.nonce = nonce
+        self.nonce, self.expect_uid = nonce, expect_uid
         return nonce
 
     def take_reply(self, reply):
+        """Returns {uid, boot, hs}. With an expected uid, another vehicle's
+        authentic reply raises HsError('uid') carrying the info, and is not taken."""
         if len(reply) != REPLY_LEN or self.nonce is None:
             raise HsError("reply")
         boot, hs = struct.unpack("<II", reply[16:24])
         uid = reply[24:36]
         if reply[:16] != self.nonce or reply_mac(self.k, self.nonce, boot, hs, uid) != reply[36:]:
             raise HsError("reply")
+        info = {"uid": uid, "boot": boot, "hs": hs}
+        if self.expect_uid is not None and uid != self.expect_uid:
+            e = HsError("uid")
+            e.info = info
+            raise e
         self.nonce = None
         self.next = _session(self.k, False, reply[:16], boot, hs, uid)
+        return info
 
-    def seal(self, seq, sysid, compid, msgid, payload):
+    def seal(self, now, seq, sysid, compid, msgid, payload):
         if self.next:
             self.live, self.next = self.next, None
+            self.switched_at, self.fc_verified = now, False
         if not self.live:
             raise HsError("nosession")
         return self.live[0].seal(seq, sysid, compid, msgid, payload)
@@ -79,7 +91,13 @@ class Gcs:
     def open(self, frame):
         if not self.live:
             raise HsError("nosession")
-        return self.live[1].open(frame)
+        r = self.live[1].open(frame)
+        self.fc_verified = True
+        return r
+
+    def needs_hello(self, now):
+        return (self.switched_at is not None and not self.fc_verified
+                and now - self.switched_at >= GCS_RESYNC_S)
 
 
 class Fc:

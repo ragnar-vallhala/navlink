@@ -188,17 +188,24 @@ void navlink_gcs_wipe(navlink_gcs_t *g) {
 }
 
 int navlink_gcs_hello(navlink_gcs_t *g, const uint8_t gcs_nonce[16],
-                      uint8_t *hello) {
+                      const uint8_t *expect_uid, uint8_t *hello) {
   if (g == NULL || gcs_nonce == NULL || hello == NULL)
     return NAVLINK_SEC_ERR_ARG;
+  if (expect_uid != NULL) {
+    memcpy(g->expect_uid, expect_uid, 12);
+    g->have_expect = 1;
+  } else {
+    g->have_expect = 0;
+  }
   memcpy(g->nonce, gcs_nonce, 16);
   g->waiting = 1;
   memcpy(hello, gcs_nonce, 16);
   return NAVLINK_HS_HELLO_LEN;
 }
 
-int navlink_gcs_reply(navlink_gcs_t *g, const uint8_t *reply, size_t len) {
-  if (g == NULL || reply == NULL)
+int navlink_gcs_reply(navlink_gcs_t *g, const uint8_t *reply, size_t len,
+                      navlink_hs_info_t *info) {
+  if (g == NULL || reply == NULL || info == NULL)
     return NAVLINK_SEC_ERR_ARG;
   if (len != NAVLINK_HS_REPLY_LEN)
     return NAVLINK_SEC_ERR_SIZE;
@@ -215,19 +222,28 @@ int navlink_gcs_reply(navlink_gcs_t *g, const uint8_t *reply, size_t len) {
   crypto_wipe(mac, sizeof mac);
   if (!ok)
     return NAVLINK_SESS_ERR_REPLY;
+  memcpy(info->uid, reply + 24, 12);
+  info->fc_boot_ctr = boot;
+  info->fc_hs_ctr = hs;
+  if (g->have_expect && memcmp(g->expect_uid, info->uid, 12) != 0)
+    return NAVLINK_SESS_ERR_UID; /* authentic, but another vehicle: keep waiting */
   g->waiting = 0; /* one reply per HELLO */
   make_session(&g->next, 0, g->k, g->nonce, boot, hs, reply + 24);
   return 0;
 }
 
-int navlink_gcs_seal(navlink_gcs_t *g, uint8_t *out, size_t cap, uint8_t iflags,
-                     const navlink_sec_hdr_t *hdr, const uint8_t *payload) {
+int navlink_gcs_seal(navlink_gcs_t *g, uint32_t now_ms, uint8_t *out, size_t cap,
+                     uint8_t iflags, const navlink_sec_hdr_t *hdr,
+                     const uint8_t *payload) {
   if (g == NULL)
     return NAVLINK_SEC_ERR_ARG;
   if (g->next.valid) {
     drop(&g->live);
     g->live = g->next;
     drop(&g->next);
+    g->switched = 1;
+    g->fc_verified = 0;
+    g->switched_ms = now_ms;
   }
   if (!g->live.valid)
     return NAVLINK_SESS_ERR_NOSESSION;
@@ -240,5 +256,13 @@ int navlink_gcs_open(navlink_gcs_t *g, const uint8_t *frame, size_t len,
     return NAVLINK_SEC_ERR_ARG;
   if (!g->live.valid)
     return NAVLINK_SESS_ERR_NOSESSION;
-  return navlink_sec_open(&g->live.rx, frame, len, hdr, payload_out);
+  const int r = navlink_sec_open(&g->live.rx, frame, len, hdr, payload_out);
+  if (r >= 0)
+    g->fc_verified = 1;
+  return r;
+}
+
+int navlink_gcs_needs_hello(const navlink_gcs_t *g, uint32_t now_ms) {
+  return g != NULL && g->switched && !g->fc_verified &&
+         (uint32_t)(now_ms - g->switched_ms) >= NAVLINK_SESS_GCS_RESYNC_MS;
 }
