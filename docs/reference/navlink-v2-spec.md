@@ -940,12 +940,21 @@ transmitted. `CAPABILITIES.key_id` is a **non-secret** 32-bit identifier (the fi
 four bytes of a keyed hash of K under a fixed label, which reveals nothing about
 K) so both ends confirm a shared key at connect rather than failing silently.
 
-**Storage on the FC.** In a reserved flash sector (readout-protected where the
-part allows) and/or on the SD card; no secure element is assumed, and physical
-access to a powered board with a debugger defeats it. The FC reads K at boot and
-holds it in RAM only. **On the GCS** the key MUST be encrypted at rest (an OS
-keystore or a passphrase-wrapped file) and MUST NOT appear in a log, a crash
-report or a configuration file in clear.
+**Storage on the FC (decision D3).** The long-term key lives in a reserved flash
+sector with readout protection enabled (RDP level 1 on the STM32F4), so it cannot
+be read back through the debug port or by a bootloader dump without erasing the
+flash, and it survives swapping the SD card. The SD card is **not** a key store:
+a card is trivially copied or swapped, so the FC MUST NOT read a key from it, and
+a key file found on a card is ignored. No secure element is assumed: an attacker
+with a debugger on a powered board, or one who can defeat readout protection,
+still reads the key; this raises the cost, it does not remove the risk. The FC
+reads K at boot and holds it in RAM only. Readout protection changes how the
+board is re-flashed and debugged (level 1 to level 0 erases the flash, and the
+key with it), which is accepted. Every connection uses a **fresh session key**
+(§11.9); the stored key is only the root and never encrypts a frame directly.
+**On the GCS** the key MUST be encrypted at rest (an OS keystore or a
+passphrase-wrapped file) and MUST NOT appear in a log, a crash report or a
+configuration file in clear.
 
 **Provisioning and rotation.** Setting or replacing K is permitted only over a
 wired, local link (USB), only while **disarmed**, only when no secured session is

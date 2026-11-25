@@ -89,7 +89,8 @@ follows is what the specification requires of a layer that you would add.
   generator), a per-handshake counter and the device id. A replayed handshake or a
   restarted counter therefore never meets an old key and a nonce never repeats.
 - **Keys.** A 32-byte pre-shared key, never transmitted. It lives in the vehicle's
-  flash and/or SD card and is encrypted at rest on the ground station. It can be
+  readout-protected flash (never on the SD card) and is encrypted at rest on the
+  ground station; every connection derives a fresh session key from it. It can be
   set only over a wired link, disarmed, never over a wireless link, in flight or
   over a secured session. A keyed vehicle rejects unsecured commands, parameter
   writes, missions, file writes and clock changes (strict mode).
