@@ -23,6 +23,7 @@ hashlib.blake2b. tests/test_sec.py checks that its bytes equal the C bytes."""
 import hashlib
 import struct
 
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
 TAG_LEN = 16
@@ -96,7 +97,7 @@ class Rx:
         try:
             pt = ChaCha20Poly1305(self.key).decrypt(
                 _nonce(counter, frame[4], frame[5], frame[6]), ct + tag, aad)
-        except Exception:
+        except InvalidTag:
             raise SecError("tag")
         self.last, self.have = counter, True
         return {"seq": frame[4], "sysid": frame[5], "compid": frame[6],
