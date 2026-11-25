@@ -61,7 +61,7 @@ uart_write(frame, n);
 
 **Firmware rules.**
 
-- No dynamic allocation. Structs are fixed size, and a frame is at most 267 bytes.
+- No dynamic allocation. Structs are fixed size, and a frame is at most 267 bytes (287 when secured).
 - Read members of a packed wire struct by value. Never take the address of one
   (`&w.kp`): that is undefined behaviour on Cortex-M. For anything that needs a
   pointer or arithmetic use the aligned struct.

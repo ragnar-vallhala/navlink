@@ -260,7 +260,8 @@
       "entries": [
         { "name": "NONE",            "value": 0 },
         { "name": "FAILSAFE_STATUS", "value": 1 },
-        { "name": "GPS_RAW",         "value": 2 }
+        { "name": "GPS_RAW",         "value": 2 },
+        { "name": "SECURE_LINK",     "value": 4 }
       ]
     }
   },
@@ -316,6 +317,24 @@
         { "index": 2, "name": "result",        "type": "u8",  "enum": "command_result" },
         { "index": 3, "name": "progress",      "type": "u8",  "doc": "0..100 for IN_PROGRESS" },
         { "index": 4, "name": "result_param2", "type": "i32" }
+      ]
+    },
+    {
+      "msgid": 6, "name": "HS_HELLO", "section": "system",
+      "doc": "Handshake step 1, ground station to vehicle, in the clear (spec §11.9): 16 fresh random bytes. It creates a pending session on the vehicle, never a live one.",
+      "fields": [
+        { "index": 0, "name": "gcs_nonce", "type": "u8", "len": 16 }
+      ]
+    },
+    {
+      "msgid": 7, "name": "HS_REPLY", "section": "system",
+      "doc": "Handshake step 2, vehicle to ground station, in the clear (spec §11.9): the echoed nonce, the vehicle's boot and handshake counters and UID, and a BLAKE2b-128 mac keyed with K over the label 'navlink-hs-reply' and every other field. The ground station accepts it only if the mac verifies over its OWN nonce.",
+      "fields": [
+        { "index": 0, "name": "gcs_nonce",   "type": "u8",  "len": 16 },
+        { "index": 1, "name": "fc_boot_ctr", "type": "u32" },
+        { "index": 2, "name": "fc_hs_ctr",   "type": "u32" },
+        { "index": 3, "name": "uid",         "type": "u8",  "len": 12 },
+        { "index": 4, "name": "mac",         "type": "u8",  "len": 16 }
       ]
     },
     {

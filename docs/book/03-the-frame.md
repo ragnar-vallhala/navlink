@@ -31,7 +31,8 @@ only in the payloads that need it (chapter 5).
 | Quantity | Value |
 |---|---|
 | minimum frame | 12 bytes (10 header, 0 payload, 2 CRC) |
-| maximum plain frame | 267 bytes (10 + 255 + 2); the C constant `NAVLINK_MAX_FRAME` |
+| maximum plain frame | 267 bytes (10 + 255 + 2) |
+| maximum secured frame | 287 bytes (10 + 255 + 22); the C constant `NAVLINK_MAX_FRAME` |
 | payload, single frame | 0 to 255 bytes |
 
 ## 3.3 incompat_flags

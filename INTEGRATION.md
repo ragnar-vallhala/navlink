@@ -24,7 +24,7 @@ replace, in what order, and the decisions it forces).
 | Loss/seq | none | `seq` per sender |
 | Per-frame timestamp | `u32` in every header | dropped; lives in payloads (`sample_time_us`) |
 | Trailing-zero trunc | no | yes (spec §5.6) |
-| Max frame | 8 + 256 + 4 = 268 B | ≤ 267 B (`NAVLINK_MAX_FRAME`) |
+| Max frame | 8 + 256 + 4 = 268 B | ≤ 267 B unsecured, ≤ 287 B secured (`NAVLINK_MAX_FRAME` = 287) |
 
 Porting therefore swaps the framing, the CRC, and the dispatch — **and**
 reshapes a few payloads (§5).

@@ -122,7 +122,7 @@ void navlink_parser_push(navlink_parser_t *p, const navlink_handlers_t *h,
                          const uint8_t *data, size_t n);   /* feed RX bytes; fires handlers */
 ```
 
-`NAVLINK_MAX_FRAME` (267) bounds an encode buffer. The header is `extern "C"`-guarded,
+`NAVLINK_MAX_FRAME` (287: the largest secured frame; an unsecured one is at most 267) bounds an encode buffer. The header is `extern "C"`-guarded,
 so the GCS compiles the same `.c` as C++.
 
 ### Python (`generated/python/navlink_msgs.py`)
@@ -285,7 +285,7 @@ void emit_attitude(float roll, float pitch, float yaw) {
 **Firmware constraints (important):**
 
 - **No dynamic allocation.** Structs are fixed-size; use static or stack buffers.
-  A single-frame payload is ≤ 255 B; the frame ≤ 267 B.
+  A single-frame payload is ≤ 255 B; the frame ≤ 267 B unsecured, ≤ 287 B secured.
 - **Packed-struct access rule.** Read wire-struct members *by value*
   (`w.kp`) — the compiler emits unaligned-safe loads. **Never** take the address
   of a packed member (`&w.kp`); that is UB on Cortex-M. Use the `to_aligned`
