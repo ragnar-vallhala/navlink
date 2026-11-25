@@ -88,6 +88,11 @@ follows is what the specification requires of a layer that you would add.
   vehicle keeps across power cycles (the STM32F401 has no random number
   generator), a per-handshake counter and the device id. A replayed handshake or a
   restarted counter therefore never meets an old key and a nonce never repeats.
+- **No lockout.** A handshake request creates only a *pending* session. The
+  session in use is replaced only when the first secured frame from the ground
+  station verifies under the new keys, so someone without the key cannot cut the
+  link by sending handshakes. An unconfirmed pending session expires.
+- **One counter per sender and direction,** shared by all its components.
 - **Keys.** A 32-byte pre-shared key, never transmitted. It lives in the vehicle's
   readout-protected flash (never on the SD card) and is encrypted at rest on the
   ground station; every connection derives a fresh session key from it. It can be

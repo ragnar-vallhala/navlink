@@ -1006,6 +1006,36 @@ repeat. Handshake attempts are rate-limited (at most one per second) so they
 cannot be used to burn CPU. The exact message layouts and ids are defined with the
 dialect change that implements this section.
 
+**A HELLO creates a pending session, never a live one.** `HELLO` is not
+authenticated (the vehicle cannot yet know who sent it), so accepting one MUST NOT
+replace or disturb the session in use: otherwise anyone, with no key, could send a
+HELLO and cut the real ground station off in flight. The vehicle keeps at most one
+**live** session and at most one **pending** session. A HELLO that passes the rate
+limit fills the pending slot (a later HELLO replaces an earlier pending one) and
+the reply is sent; the live session is untouched and keeps working. The pending
+session becomes live, and the old live session is dropped, **only when the first
+secured GCS→FC frame verifies under the pending session's keys**: that frame
+proves the sender holds K. A pending session that is not confirmed within a
+timeout (5 s recommended) is discarded. The rate limit applies to filling the
+pending slot, so it cannot starve a legitimate reconnect: the live session is
+never affected by it, and a genuine HELLO is confirmed within one round trip. An
+attacker who floods HELLOs can at worst delay a reconnect while the old session
+is already gone (for example after a ground-station restart); it cannot cut a live
+link. That residual delay is a known limit. The ground station switches its own
+side to the new keys when it sends its first frame under them. When there is no
+live session (first connection, or the old one has been dropped) the pending
+session is promoted by the same rule.
+
+**One counter per sender per direction.** For each direction of a session the
+sender keeps exactly one counter, shared by **all** components (every `compid`)
+that send in that direction. It is not per component. The receiver keeps one
+last-accepted counter per (session, direction) and applies §11.5 to it, so
+counters held per component would get each other's frames rejected. Nonce
+uniqueness still holds because the counter alone is unique under the subkey;
+`seq`, `sysid` and `compid` stay in the nonce as additional separation, not as
+the source of uniqueness. A multi-component sender therefore needs one shared
+counter source (an atomic increment) across its transmit paths.
+
 ### 11.10 Failure handling (normative)
 
 Cryptography MUST NOT be on, or able to block, the flight-critical path. RC input,
