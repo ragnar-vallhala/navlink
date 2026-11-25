@@ -219,12 +219,25 @@
     },
     "failsafe_flags": {
       "section": "flight.state",
-      "doc": "FAILSAFE_STATUS.flags bitmask. LANDING: an automatic landing is under way (land_cause is not 0). PILOT_TOOK_OVER: the pilot cancelled a battery landing with a mode-switch move; it is not started again at that level. BATT_UNTRUSTED: the pack voltage cannot be believed right now, so batt_level is the last believed one, not a current one.",
+      "doc": "FAILSAFE_STATUS.flags bitmask. LANDING: an automatic landing is under way (land_cause is not 0). PILOT_TOOK_OVER: the pilot cancelled a battery landing with a mode-switch move; it is not started again at that level. BATT_UNTRUSTED: the pack voltage cannot be believed right now, so batt_level is the last believed one, not a current one. GPS_UNTRUSTED: a GPS receiver has been heard on this flight controller and its fix cannot be believed right now (no fix, too few satellites, reports stopped or stuck, or a position jump the motion does not explain); it is information only and changes no control. It is never set on a board with no receiver, or before one has been heard, so absent means unknown, not good.",
       "entries": [
         { "name": "NONE",           "value": 0 },
         { "name": "LANDING",        "value": 1 },
         { "name": "PILOT_TOOK_OVER","value": 2 },
-        { "name": "BATT_UNTRUSTED", "value": 4 }
+        { "name": "BATT_UNTRUSTED", "value": 4 },
+        { "name": "GPS_UNTRUSTED",  "value": 8 }
+      ]
+    },
+    "gps_fix_type": {
+      "section": "flight.sensors",
+      "doc": "GPS_RAW.fix_type: the receiver's own fix type, the values of the u-blox UBX NAV-PVT fixType field. It is what the receiver claims, not whether the flight controller believes it (FAILSAFE_STATUS.flags GPS_UNTRUSTED says that).",
+      "entries": [
+        { "name": "NO_FIX",          "value": 0 },
+        { "name": "DEAD_RECKONING",  "value": 1 },
+        { "name": "FIX_2D",          "value": 2 },
+        { "name": "FIX_3D",          "value": 3 },
+        { "name": "GNSS_DR",         "value": 4 },
+        { "name": "TIME_ONLY",       "value": 5 }
       ]
     },
     "arm_refusal": {
@@ -246,7 +259,8 @@
       "doc": "HEARTBEAT.capabilities bits (spec 13). A bit says the sender produces that optional message; absence of a bit means unknown, not unsupported on a peer that does not set bits yet.",
       "entries": [
         { "name": "NONE",            "value": 0 },
-        { "name": "FAILSAFE_STATUS", "value": 1 }
+        { "name": "FAILSAFE_STATUS", "value": 1 },
+        { "name": "GPS_RAW",         "value": 2 }
       ]
     }
   },
@@ -664,6 +678,24 @@
         { "index": 2, "name": "flags",       "type": "u8", "enum": "failsafe_flags" },
         { "index": 3, "name": "arm_refusal", "type": "u8", "enum": "arm_refusal" },
         { "index": 4, "name": "cells",       "type": "u8", "doc": "pack cell count of the board, 0 = battery logic off" }
+      ]
+    },
+    {
+      "msgid": 1052, "name": "GPS_RAW", "section": "flight.sensors",
+      "doc": "What the GPS receiver reported, as the receiver reported it: the fields of a u-blox UBX NAV-PVT message in the receiver's own units, so nothing is converted or guessed on the way. It is the receiver's claim, not a verdict: whether the flight controller believes it is FAILSAFE_STATUS.flags GPS_UNTRUSTED. Sent at most 5 Hz, and only by a flight controller that has a receiver and has heard it (HEARTBEAT.capabilities bit GPS_RAW says this one can); a ground station that never receives one shows 'no GPS', and the sender never sends made-up zeros. lat_e7 and lon_e7 are degrees times 1e7, alt_mm is height above mean sea level, vel_ned_mm_s the ground velocity north, east, down. h_acc_mm, v_acc_mm and s_acc_mm_s are the receiver's own accuracy estimates (horizontal and vertical position, speed), 0xFFFFFFFF if the receiver did not give one. nav_flags is the NAV-PVT flags byte as received (bit 0 gnssFixOK). time_us is the flight controller's own clock when the report was received, not GPS time.",
+      "fields": [
+        { "index": 0,  "name": "time_us",       "type": "u64", "unit": "us", "doc": "flight controller clock when the report was received" },
+        { "index": 1,  "name": "lat_e7",        "type": "i32", "unit": "1e-7 deg" },
+        { "index": 2,  "name": "lon_e7",        "type": "i32", "unit": "1e-7 deg" },
+        { "index": 3,  "name": "alt_mm",        "type": "i32", "unit": "mm", "doc": "above mean sea level" },
+        { "index": 4,  "name": "vel_ned_mm_s",  "type": "i32", "len": 3, "unit": "mm/s", "doc": "ground velocity north, east, down" },
+        { "index": 5,  "name": "h_acc_mm",      "type": "u32", "unit": "mm" },
+        { "index": 6,  "name": "v_acc_mm",      "type": "u32", "unit": "mm" },
+        { "index": 7,  "name": "s_acc_mm_s",    "type": "u32", "unit": "mm/s" },
+        { "index": 8,  "name": "pdop_x100",     "type": "u16", "doc": "position dilution of precision times 100" },
+        { "index": 9,  "name": "fix_type",      "type": "u8", "enum": "gps_fix_type" },
+        { "index": 10, "name": "sats",          "type": "u8", "doc": "satellites used in the solution" },
+        { "index": 11, "name": "nav_flags",     "type": "u8", "doc": "NAV-PVT flags byte as received" }
       ]
     },
     {
