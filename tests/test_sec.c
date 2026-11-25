@@ -99,7 +99,7 @@ static void setup(navlink_sec_tx_t *tx, navlink_sec_rx_t *rx, uint8_t dir) {
 }
 
 static const navlink_sec_hdr_t H = {5, 1, 1, 0x000102, 13};
-static const uint8_t PL[13] = "hello navlink";
+static const uint8_t PL[] = "hello navlink"; /* 13 bytes; the NUL is not sent */
 
 static void test_golden(void) {
   uint8_t ks[32], exp[32], k[32], n[16], uid[12], f[300], want[300];
