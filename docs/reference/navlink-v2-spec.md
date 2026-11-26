@@ -1046,6 +1046,24 @@ uniqueness still holds because the counter alone is unique under the subkey;
 the source of uniqueness. A multi-component sender therefore needs one shared
 counter source (an atomic increment) across its transmit paths.
 
+### 11.9.1 Parser hook (informative, the reference codec)
+
+The generated parser (C and Python) routes secured frames through two optional
+handler slots, `secure_open` and `accept_unsecured`. With `secure_open` unset
+(the default) the parser behaves exactly as it did before §11: a frame with any
+`incompat_flags` bit set is rejected at the header. With it set, only
+`IFLAG_ENCRYPTED` (exactly `0x02`; every other value is still rejected at the
+header) is routed: the parser assembles `10 + payload_len + 22` bytes (at most
+`NAVLINK_MAX_FRAME`, the size of its buffer) and hands the whole frame to the
+hook, which authenticates and decrypts it and returns the plaintext length (which
+must equal `payload_len`) or a negative value to drop. The AEAD tag **replaces**
+the CRC: no CRC is computed on a secured frame, and nothing is dispatched until
+the tag has verified (the order of §11.6: tag, msgid lookup, dispatch). A rejected
+secured frame is rescanned like a CRC failure; an authentic frame with an unknown
+msgid is consumed. `accept_unsecured` is called for each CRC-valid unsecured frame
+before dispatch and may drop it (strict mode, §11.8); secured frames are not
+subject to it.
+
 ### 11.10 Failure handling (normative)
 
 Cryptography MUST NOT be on, or able to block, the flight-critical path. RC input,

@@ -143,6 +143,16 @@ if(NAVLINK_SANITIZE)
 endif()
 add_test(NAME test_sess_c COMMAND test_sess_c)
 
+add_executable(test_parser_sec_c tests/test_parser_sec.c)
+target_link_libraries(test_parser_sec_c PRIVATE navlink_sec navlink)
+target_compile_options(test_parser_sec_c PRIVATE -std=c11 -Wall -Wextra -Werror -UNDEBUG)
+if(NAVLINK_SANITIZE)
+  target_compile_options(test_parser_sec_c PRIVATE -fsanitize=address,undefined
+                                                   -fno-omit-frame-pointer)
+  target_link_options(test_parser_sec_c PRIVATE -fsanitize=address,undefined)
+endif()
+add_test(NAME test_parser_sec_c COMMAND test_parser_sec_c)
+
 # --- the Python side ---
 # Each test reads generated/, so generation is a ctest fixture rather than
 # something each test re-does or each runner has to know to sequence.
@@ -150,7 +160,7 @@ add_test(NAME generate
          COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/generate.py)
 set_tests_properties(generate PROPERTIES FIXTURES_SETUP navlink_gen)
 
-set(PY_TESTS test_codec test_xfer_loopback test_fs_nav_loopback test_sec test_sess)
+set(PY_TESTS test_codec test_xfer_loopback test_fs_nav_loopback test_sec test_sess test_parser_sec)
 foreach(t ${PY_TESTS})
   add_test(NAME ${t}
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/${t}.py)
