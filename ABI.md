@@ -454,3 +454,34 @@ The release PR bumps `[project] version` and `[abi] abi_version` in `nav.toml`
 (§8): proposed here as navlink 3.0.0 and `abi_version = 2`, for the release
 owner to confirm. This change does not touch either, and no pin of a
 downstream repo moves with it.
+
+## 11. Migrating to navlink 4.0 (ABI change)
+
+navlink 4.0.0, `abi_version = 3`. The wire is unchanged for every existing
+message: no msgid, field or CRC_EXTRA moves, and an unsecured frame is at most
+267 bytes as before. The C and Python source API changes in three ways.
+
+**1. `navlink_handlers_t` changes layout.** HS_HELLO (6) and HS_REPLY (7) have
+msgids below the old maximum, so the `on_<msg>` slots after them move (§10
+explains why), and the struct gains `secure_open` and `accept_unsecured` at the
+end of the non-message slots. Rebuild every translation unit that includes
+`navlink_msgs.h`, keep designated initialisers, and zero-initialise a struct
+filled at run time. Both new slots NULL is the 3.x behaviour.
+
+**2. `NAVLINK_MAX_FRAME` is 287 (was 267).** A secured frame carries a 22-byte
+trailer. Any buffer sized from the macro grows by 20 bytes: re-check stack
+frames and static buffers sized from it, and any transport with its own frame
+limit (a bridge, a radio MTU).
+
+**3. A frame with the encrypted bit is no longer ignored as unknown.** With
+`secure_open` NULL the parser rejects it at the header, as before. With the hook
+set, it is routed whole to the hook, which owns the tag, counter and decrypt
+(spec §11.9.1). Nothing is dispatched before the tag verifies.
+
+**What a consumer must do:**
+
+1. Rebuild against navlink 4.0; no source change is needed if you do not use the
+   secured layer, apart from the buffer review in point 2.
+2. To use it, set `secure_open` (and, for strict mode, `accept_unsecured`), and
+   route every outgoing frame through `navlink_fc_seal` or the GCS equivalent.
+3. Python: `Handlers` takes the same two new keyword arguments, `None` by default.

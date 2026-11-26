@@ -1,12 +1,12 @@
 [project]
 name        = "navlink"
-version     = "3.3.0"
+version     = "4.0.0"
 type        = "library"
 license     = "Apache-2.0"
 description = "NavLink v2 telemetry/command wire protocol: C codec generated from dialect.json at build time."
 
 [abi]
-abi_version = 2
+abi_version = 3
 
 [build]
 backend = "cmake"
