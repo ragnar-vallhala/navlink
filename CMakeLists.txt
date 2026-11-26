@@ -96,6 +96,16 @@ target_include_directories(navlink_sec PUBLIC sec vendor/monocypher)
 set_target_properties(navlink_sec PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
 add_library(navlink::sec ALIAS navlink_sec)
 
+# A consumer that builds navlink through a tool that links only the `navlink`
+# target (nav does) turns the secured layer on with NAVLINK_SEC=ON: it is then
+# linked into `navlink` and its headers (sec/, vendor/monocypher) reach the
+# consumer. OFF (the default) leaves `navlink` exactly as it was. The sec objects
+# are an archive, so a consumer that never calls them links none of their code.
+option(NAVLINK_SEC "Link the secured-frame layer into the navlink target" OFF)
+if(NAVLINK_SEC)
+  target_link_libraries(navlink PUBLIC navlink_sec)
+endif()
+
 
 # Tests build with -Werror and register with ctest, so a consumer that
 # add_subdirectory()s navlink gets them only if it asks.
