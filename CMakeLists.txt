@@ -94,10 +94,15 @@ add_library(navlink_sec STATIC sec/navlink_sec.c sec/navlink_sess.c
             vendor/monocypher/monocypher.c)
 target_include_directories(navlink_sec PUBLIC sec vendor/monocypher)
 set_target_properties(navlink_sec PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
-# One section per function and datum, so a consumer's --gc-sections drops the
-# parts of Monocypher it never calls (the vendored file is about 144 KB of code
-# in one section otherwise, and the secured layer needs a small part of it).
-target_compile_options(navlink_sec PRIVATE -ffunction-sections -fdata-sections)
+# Built for size. nav applies its dependency optimisation level only to the
+# targets it lists, and navlink_sec is not one, so without -Os this compiles at
+# -O0 (about 144 KB). The vendored file is one object: a consumer without
+# --gc-sections links all of it, so what it costs is what the object costs.
+# One section per function lets a consumer that does gc-sections drop the rest.
+target_compile_options(navlink_sec PRIVATE -ffunction-sections -fdata-sections -Os)
+# BLAKE2b is only used for the handshake and key derivation, never per frame;
+# the unrolled rounds are 15 KB of the 36 KB object at -Os.
+target_compile_definitions(navlink_sec PRIVATE BLAKE2_NO_UNROLLING)
 add_library(navlink::sec ALIAS navlink_sec)
 
 # A consumer that builds navlink through a tool that links only the `navlink`
