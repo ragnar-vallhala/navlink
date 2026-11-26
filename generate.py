@@ -39,6 +39,8 @@ import os
 import re
 import sys
 
+import catalog  # the parameter catalog (params.json), beside this file
+
 # ── type model ──────────────────────────────────────────────────────────────
 # name -> (wire_bytes, c_wire_type, c_aligned_type, py_struct_char)
 # u24 is special (no C/struct primitive): 3 wire bytes, u32 aligned.
@@ -1436,6 +1438,9 @@ def main():
     if ft is not None:
         errs += validate_faults(ft, d)
         d["faults"] = ft["faults"]
+    pc = catalog.load_params(args.dialect)
+    if pc is not None:
+        errs += catalog.validate_params(pc)
     if errs:
         print("dialect validation failed:", file=sys.stderr)
         for e in errs:
@@ -1458,12 +1463,24 @@ def main():
             fh.write(gen_c_parity(d))
         written += [os.path.join(cdir, "navlink_msgs.h"), os.path.join(cdir, "navlink_msgs.c"),
                     os.path.join(cdir, "navlink_parity.c")]
+        if pc is not None:
+            ph, pcs = catalog.gen_c(pc)
+            with open(os.path.join(cdir, "navlink_params.h"), "w") as fh:
+                fh.write(ph)
+            with open(os.path.join(cdir, "navlink_params.c"), "w") as fh:
+                fh.write(pcs)
+            written += [os.path.join(cdir, "navlink_params.h"),
+                        os.path.join(cdir, "navlink_params.c")]
     if args.lang in ("py", "both", "all"):
         pdir = os.path.join(args.out, "python")
         os.makedirs(pdir, exist_ok=True)
         with open(os.path.join(pdir, "navlink_msgs.py"), "w") as fh:
             fh.write(gen_py(d))
         written += [os.path.join(pdir, "navlink_msgs.py")]
+        if pc is not None:
+            with open(os.path.join(pdir, "navlink_params.py"), "w") as fh:
+                fh.write(catalog.gen_py(pc))
+            written += [os.path.join(pdir, "navlink_params.py")]
     if args.lang in ("html", "all"):
         hdir = os.path.join(args.out, "html")
         os.makedirs(hdir, exist_ok=True)
@@ -1472,6 +1489,13 @@ def main():
             fh.write(gen_html(d))
         written += [hp]
 
+    if pc is not None:
+        # The resolved catalog (table CRC filled in, display text kept) for the GCS.
+        jp = os.path.join(args.out, "params_catalog.json")
+        with open(jp, "w") as fh:
+            fh.write(catalog.gen_json(pc))
+        written += [jp]
+        print(f"navlink: {len(pc['params'])} parameters, table CRC 0x{catalog.table_crc(pc):08X}")
     print(f"navlink: {len(d['messages'])} messages, {len(d.get('enums', {}))} enums")
     print("CRC-16 self-check 0x{:04X} (expect 0x6F91) OK".format(crc16(b"123456789")))
     for w in written:

@@ -1,0 +1,616 @@
+{
+  "catalog": 1,
+  "_comment": "The parameter catalog (spec 12.2). The order is the wire index: append only. Every min/max carries a range_why; a range marked 'proposed' is the GCS side's draft and needs the firmware owner's confirmation. See catalog.py for the rules.",
+  "groups": {
+    "1": {
+      "name": "RATE_ROLL",
+      "doc": "Roll rate PID gains. Set together: a half-written set of gains is never live."
+    },
+    "2": {
+      "name": "RATE_PITCH",
+      "doc": "Pitch rate PID gains."
+    },
+    "3": {
+      "name": "RATE_YAW",
+      "doc": "Yaw rate PID gains."
+    },
+    "4": {
+      "name": "ANGLE",
+      "doc": "Angle-loop proportional gains of the three axes."
+    },
+    "5": {
+      "name": "NOTCH",
+      "doc": "Dynamic gyro notch: enable and detection settings. fmin must stay below fmax, so they commit together."
+    },
+    "6": {
+      "name": "MOTGEO",
+      "doc": "Motor geometry of the 4-motor mixer: position and spin of every motor. A mixer built from half a geometry would be wrong, so the 12 fields commit together."
+    }
+  },
+  "params": [
+    {
+      "id": "SYS_PTBL_CRC",
+      "type": "U32",
+      "min": 0,
+      "max": 4294967295,
+      "default": "@table_crc",
+      "flags": [
+        "READ_ONLY"
+      ],
+      "group": 0,
+      "unit": "",
+      "doc": "CRC-32 of this catalog's id, type, flags, group, min and max (generated). The GCS reads it first: a different value means the GCS catalog is not the one this firmware runs, and the GCS then shows the raw values read-only.",
+      "range_why": "A checksum: every 32-bit value is possible."
+    },
+    {
+      "id": "RATE_ROLL_KP",
+      "type": "F32",
+      "min": 0.00075,
+      "max": 0.03,
+      "default": 0.003,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 1,
+      "unit": "",
+      "doc": "Roll rate PID proportional gain (normalised output per deg/s).",
+      "range_why": "proposed min 0.00075. ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the compiled value (0.003). The minimum is 0.25x the compiled value so that one write cannot turn the loop off."
+    },
+    {
+      "id": "RATE_ROLL_KI",
+      "type": "F32",
+      "min": 0.0,
+      "max": 0.0811,
+      "default": 0.00811,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 1,
+      "unit": "",
+      "doc": "Roll rate PID integral gain.",
+      "range_why": "min 0 (a gain may be switched off). ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the compiled value (0.00811)."
+    },
+    {
+      "id": "RATE_ROLL_KD",
+      "type": "F32",
+      "min": 0.0,
+      "max": 0.0005,
+      "default": 5e-05,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 1,
+      "unit": "",
+      "doc": "Roll rate PID derivative gain.",
+      "range_why": "min 0 (a gain may be switched off). ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the compiled value (5e-05)."
+    },
+    {
+      "id": "RATE_ROLL_KFF",
+      "type": "F32",
+      "min": 0.0,
+      "max": 0.03,
+      "default": 0.0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 1,
+      "unit": "",
+      "doc": "Roll rate PID feed-forward gain.",
+      "range_why": "min 0 (a gain may be switched off). ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the axis Kp default (0.003): the compiled Kff is 0 (off), so there is no value of its own to scale."
+    },
+    {
+      "id": "RATE_PITCH_KP",
+      "type": "F32",
+      "min": 0.000625,
+      "max": 0.025,
+      "default": 0.0025,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 2,
+      "unit": "",
+      "doc": "Pitch rate PID proportional gain (normalised output per deg/s).",
+      "range_why": "proposed min 0.000625. ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the compiled value (0.0025). The minimum is 0.25x the compiled value so that one write cannot turn the loop off."
+    },
+    {
+      "id": "RATE_PITCH_KI",
+      "type": "F32",
+      "min": 0.0,
+      "max": 0.03,
+      "default": 0.003,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 2,
+      "unit": "",
+      "doc": "Pitch rate PID integral gain.",
+      "range_why": "min 0 (a gain may be switched off). ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the compiled value (0.003)."
+    },
+    {
+      "id": "RATE_PITCH_KD",
+      "type": "F32",
+      "min": 0.0,
+      "max": 0.0005,
+      "default": 5e-05,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 2,
+      "unit": "",
+      "doc": "Pitch rate PID derivative gain.",
+      "range_why": "min 0 (a gain may be switched off). ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the compiled value (5e-05)."
+    },
+    {
+      "id": "RATE_PITCH_KFF",
+      "type": "F32",
+      "min": 0.0,
+      "max": 0.025,
+      "default": 0.0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 2,
+      "unit": "",
+      "doc": "Pitch rate PID feed-forward gain.",
+      "range_why": "min 0 (a gain may be switched off). ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the axis Kp default (0.0025): the compiled Kff is 0 (off), so there is no value of its own to scale."
+    },
+    {
+      "id": "RATE_YAW_KP",
+      "type": "F32",
+      "min": 0.001,
+      "max": 0.04,
+      "default": 0.004,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 3,
+      "unit": "",
+      "doc": "Yaw rate PID proportional gain (normalised output per deg/s).",
+      "range_why": "proposed min 0.001. ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the compiled value (0.004). The minimum is 0.25x the compiled value so that one write cannot turn the loop off."
+    },
+    {
+      "id": "RATE_YAW_KI",
+      "type": "F32",
+      "min": 0.0,
+      "max": 0.08,
+      "default": 0.008,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 3,
+      "unit": "",
+      "doc": "Yaw rate PID integral gain.",
+      "range_why": "min 0 (a gain may be switched off). ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the compiled value (0.008)."
+    },
+    {
+      "id": "RATE_YAW_KD",
+      "type": "F32",
+      "min": 0.0,
+      "max": 0.0005,
+      "default": 0.0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 3,
+      "unit": "",
+      "doc": "Yaw rate PID derivative gain.",
+      "range_why": "min 0 (a gain may be switched off). ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max is roll's Kd max (the compiled yaw Kd is 0, so there is no value of its own to scale)."
+    },
+    {
+      "id": "RATE_YAW_KFF",
+      "type": "F32",
+      "min": 0.0,
+      "max": 0.04,
+      "default": 0.0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 3,
+      "unit": "",
+      "doc": "Yaw rate PID feed-forward gain.",
+      "range_why": "min 0 (a gain may be switched off). ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the axis Kp default (0.004): the compiled Kff is 0 (off), so there is no value of its own to scale."
+    },
+    {
+      "id": "ANG_ROLL_KP",
+      "type": "F32",
+      "min": 0.75,
+      "max": 30.0,
+      "default": 3.0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 4,
+      "unit": "1/s",
+      "doc": "Roll angle-loop proportional gain (deg/s of rate command per degree of error).",
+      "range_why": "ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value (3); the minimum is 0.25x the compiled value so that one write cannot turn the loop off."
+    },
+    {
+      "id": "ANG_PITCH_KP",
+      "type": "F32",
+      "min": 0.75,
+      "max": 30.0,
+      "default": 3.0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 4,
+      "unit": "1/s",
+      "doc": "Pitch angle-loop proportional gain (deg/s of rate command per degree of error).",
+      "range_why": "ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value (3); the minimum is 0.25x the compiled value so that one write cannot turn the loop off."
+    },
+    {
+      "id": "ANG_YAW_KP",
+      "type": "F32",
+      "min": 0.3,
+      "max": 12.0,
+      "default": 1.2,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 4,
+      "unit": "1/s",
+      "doc": "Yaw angle-loop proportional gain (deg/s of rate command per degree of error).",
+      "range_why": "ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value (1.2); the minimum is 0.25x the compiled value so that one write cannot turn the loop off."
+    },
+    {
+      "id": "GLPF_ROLL_RC",
+      "type": "F32",
+      "min": 0.0,
+      "max": 0.01,
+      "default": 0.0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 0,
+      "unit": "s",
+      "doc": "Roll gyro low-pass time constant; 0 turns the filter off.",
+      "range_why": "proposed 0..0.01 s (16 Hz cutoff at the top): a longer time constant on the rate-loop gyro adds phase lag below the control bandwidth and the loop oscillates; the compiled default is off (0)."
+    },
+    {
+      "id": "GLPF_PITCH_RC",
+      "type": "F32",
+      "min": 0.0,
+      "max": 0.01,
+      "default": 0.0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 0,
+      "unit": "s",
+      "doc": "Pitch gyro low-pass time constant; 0 turns the filter off.",
+      "range_why": "proposed 0..0.01 s (16 Hz cutoff at the top): a longer time constant on the rate-loop gyro adds phase lag below the control bandwidth and the loop oscillates; the compiled default is off (0)."
+    },
+    {
+      "id": "GLPF_YAW_RC",
+      "type": "F32",
+      "min": 0.0,
+      "max": 0.01,
+      "default": 0.0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 0,
+      "unit": "s",
+      "doc": "Yaw gyro low-pass time constant; 0 turns the filter off.",
+      "range_why": "proposed 0..0.01 s (16 Hz cutoff at the top): a longer time constant on the rate-loop gyro adds phase lag below the control bandwidth and the loop oscillates; the compiled default is off (0)."
+    },
+    {
+      "id": "DLPF_ROLL_RC",
+      "type": "F32",
+      "min": 0.0,
+      "max": 0.5,
+      "default": 0.004,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 0,
+      "unit": "s",
+      "doc": "Roll rate PID derivative-term low-pass time constant; 0 turns the filter off.",
+      "range_why": "proposed 0..0.5 s: the survey says 0..0.1 s, but the compiled yaw value is 0.3 s (noted there as unusually large), and the catalog default must equal the compiled value, so the upper bound is 0.5 s."
+    },
+    {
+      "id": "DLPF_PITCH_RC",
+      "type": "F32",
+      "min": 0.0,
+      "max": 0.5,
+      "default": 0.004,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 0,
+      "unit": "s",
+      "doc": "Pitch rate PID derivative-term low-pass time constant; 0 turns the filter off.",
+      "range_why": "proposed 0..0.5 s: the survey says 0..0.1 s, but the compiled yaw value is 0.3 s (noted there as unusually large), and the catalog default must equal the compiled value, so the upper bound is 0.5 s."
+    },
+    {
+      "id": "DLPF_YAW_RC",
+      "type": "F32",
+      "min": 0.0,
+      "max": 0.5,
+      "default": 0.3,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 0,
+      "unit": "s",
+      "doc": "Yaw rate PID derivative-term low-pass time constant; 0 turns the filter off.",
+      "range_why": "proposed 0..0.5 s: the survey says 0..0.1 s, but the compiled yaw value is 0.3 s (noted there as unusually large), and the catalog default must equal the compiled value, so the upper bound is 0.5 s."
+    },
+    {
+      "id": "NOTCH_EN",
+      "type": "U8",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 5,
+      "unit": "",
+      "doc": "Dynamic gyro notch master enable (0 off, 1 on).",
+      "range_why": "0 or 1: a switch."
+    },
+    {
+      "id": "NOTCH_Q",
+      "type": "F32",
+      "min": 1.0,
+      "max": 20.0,
+      "default": 8.0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 5,
+      "unit": "",
+      "doc": "Notch band-stop Q (higher is narrower).",
+      "range_why": "proposed 1..20: the survey's range; compiled default 8."
+    },
+    {
+      "id": "NOTCH_FMIN",
+      "type": "F32",
+      "min": 20.0,
+      "max": 500.0,
+      "default": 60.0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 5,
+      "unit": "Hz",
+      "doc": "Lower bound of the notch detection band.",
+      "range_why": "proposed 20..500 Hz: below 20 Hz is control bandwidth, above 500 Hz is the analyser's Nyquist limit (1 kHz inner loop); compiled default 60 Hz."
+    },
+    {
+      "id": "NOTCH_FMAX",
+      "type": "F32",
+      "min": 20.0,
+      "max": 500.0,
+      "default": 450.0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 5,
+      "unit": "Hz",
+      "doc": "Upper bound of the notch detection band; must stay above NOTCH_FMIN (checked when the group commits).",
+      "range_why": "proposed 20..500 Hz, as NOTCH_FMIN; compiled default 450 Hz."
+    },
+    {
+      "id": "NOTCH_MINRATIO",
+      "type": "F32",
+      "min": 1.0,
+      "max": 20.0,
+      "default": 4.0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 5,
+      "unit": "",
+      "doc": "Minimum peak-to-mean power ratio for a spectral peak to count as a notch target.",
+      "range_why": "proposed 1..20: a ratio below 1 would accept noise as a peak; compiled default 4."
+    },
+    {
+      "id": "MOT_X1",
+      "type": "F32",
+      "min": -10.0,
+      "max": 10.0,
+      "default": 1.0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 6,
+      "unit": "m",
+      "doc": "Motor 1 position, forward (m). Today's mixer uses only the sign.",
+      "range_why": "proposed -10..10 m: larger than any airframe this firmware flies (the survey notes a 15 inch frame); the default is the X-quad sign pattern, magnitude 1."
+    },
+    {
+      "id": "MOT_X2",
+      "type": "F32",
+      "min": -10.0,
+      "max": 10.0,
+      "default": -1.0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 6,
+      "unit": "m",
+      "doc": "Motor 2 position, forward (m). Today's mixer uses only the sign.",
+      "range_why": "proposed -10..10 m: larger than any airframe this firmware flies (the survey notes a 15 inch frame); the default is the X-quad sign pattern, magnitude 1."
+    },
+    {
+      "id": "MOT_X3",
+      "type": "F32",
+      "min": -10.0,
+      "max": 10.0,
+      "default": -1.0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 6,
+      "unit": "m",
+      "doc": "Motor 3 position, forward (m). Today's mixer uses only the sign.",
+      "range_why": "proposed -10..10 m: larger than any airframe this firmware flies (the survey notes a 15 inch frame); the default is the X-quad sign pattern, magnitude 1."
+    },
+    {
+      "id": "MOT_X4",
+      "type": "F32",
+      "min": -10.0,
+      "max": 10.0,
+      "default": 1.0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 6,
+      "unit": "m",
+      "doc": "Motor 4 position, forward (m). Today's mixer uses only the sign.",
+      "range_why": "proposed -10..10 m: larger than any airframe this firmware flies (the survey notes a 15 inch frame); the default is the X-quad sign pattern, magnitude 1."
+    },
+    {
+      "id": "MOT_Y1",
+      "type": "F32",
+      "min": -10.0,
+      "max": 10.0,
+      "default": 1.0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 6,
+      "unit": "m",
+      "doc": "Motor 1 position, right (m). Today's mixer uses only the sign.",
+      "range_why": "proposed -10..10 m, as MOT_X1."
+    },
+    {
+      "id": "MOT_Y2",
+      "type": "F32",
+      "min": -10.0,
+      "max": 10.0,
+      "default": 1.0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 6,
+      "unit": "m",
+      "doc": "Motor 2 position, right (m). Today's mixer uses only the sign.",
+      "range_why": "proposed -10..10 m, as MOT_X1."
+    },
+    {
+      "id": "MOT_Y3",
+      "type": "F32",
+      "min": -10.0,
+      "max": 10.0,
+      "default": -1.0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 6,
+      "unit": "m",
+      "doc": "Motor 3 position, right (m). Today's mixer uses only the sign.",
+      "range_why": "proposed -10..10 m, as MOT_X1."
+    },
+    {
+      "id": "MOT_Y4",
+      "type": "F32",
+      "min": -10.0,
+      "max": 10.0,
+      "default": -1.0,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 6,
+      "unit": "m",
+      "doc": "Motor 4 position, right (m). Today's mixer uses only the sign.",
+      "range_why": "proposed -10..10 m, as MOT_X1."
+    },
+    {
+      "id": "MOT_SPIN1",
+      "type": "I8",
+      "min": -1,
+      "max": 1,
+      "default": 1,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 6,
+      "unit": "",
+      "doc": "Motor 1 spin direction: +1 counter-clockwise seen from above, -1 clockwise. 0 is refused when the group commits.",
+      "range_why": "-1..1: the two directions; 0 sits inside the type range but is not a direction, so the group commit refuses it."
+    },
+    {
+      "id": "MOT_SPIN2",
+      "type": "I8",
+      "min": -1,
+      "max": 1,
+      "default": -1,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 6,
+      "unit": "",
+      "doc": "Motor 2 spin direction: +1 counter-clockwise seen from above, -1 clockwise. 0 is refused when the group commits.",
+      "range_why": "-1..1: the two directions; 0 sits inside the type range but is not a direction, so the group commit refuses it."
+    },
+    {
+      "id": "MOT_SPIN3",
+      "type": "I8",
+      "min": -1,
+      "max": 1,
+      "default": 1,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 6,
+      "unit": "",
+      "doc": "Motor 3 spin direction: +1 counter-clockwise seen from above, -1 clockwise. 0 is refused when the group commits.",
+      "range_why": "-1..1: the two directions; 0 sits inside the type range but is not a direction, so the group commit refuses it."
+    },
+    {
+      "id": "MOT_SPIN4",
+      "type": "I8",
+      "min": -1,
+      "max": 1,
+      "default": -1,
+      "flags": [
+        "LOCKED_WHEN_ARMED",
+        "PERSISTED"
+      ],
+      "group": 6,
+      "unit": "",
+      "doc": "Motor 4 spin direction: +1 counter-clockwise seen from above, -1 clockwise. 0 is refused when the group commits.",
+      "range_why": "-1..1: the two directions; 0 sits inside the type range but is not a direction, so the group commit refuses it."
+    }
+  ]
+}
