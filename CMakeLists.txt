@@ -66,10 +66,13 @@ configure_file(${CMAKE_CURRENT_BINARY_DIR}/navlink_profile.stamp.in
                ${CMAKE_CURRENT_BINARY_DIR}/navlink_profile.stamp COPYONLY)
 add_custom_command(
   OUTPUT ${GEN_C}/navlink_msgs.h ${GEN_C}/navlink_msgs.c ${GEN_C}/navlink_parity.c
+         ${GEN_C}/navlink_params.h ${GEN_C}/navlink_params.c
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/generate.py
           --lang ${NAVLINK_GEN_LANG} --profile ${NAVLINK_PROFILE} --out ${GEN}
   DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/dialect.json
           ${CMAKE_CURRENT_SOURCE_DIR}/faults.json
+          ${CMAKE_CURRENT_SOURCE_DIR}/params.json
+          ${CMAKE_CURRENT_SOURCE_DIR}/catalog.py
           ${CMAKE_CURRENT_SOURCE_DIR}/generate.py
           ${CMAKE_CURRENT_BINARY_DIR}/navlink_profile.stamp
   COMMENT "navlink: generating the codec from dialect.json"
@@ -179,7 +182,7 @@ add_test(NAME generate
          COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/generate.py)
 set_tests_properties(generate PROPERTIES FIXTURES_SETUP navlink_gen)
 
-set(PY_TESTS test_codec test_xfer_loopback test_fs_nav_loopback test_sec test_sess test_parser_sec)
+set(PY_TESTS test_codec test_catalog test_xfer_loopback test_fs_nav_loopback test_sec test_sess test_parser_sec)
 foreach(t ${PY_TESTS})
   add_test(NAME ${t}
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/${t}.py)

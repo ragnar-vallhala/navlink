@@ -1121,6 +1121,45 @@ hard-coding the rule.
 - Also: `PARAM_REQUEST_LIST`, `PARAM_REQUEST_READ { param_id | index }`,
   `PARAM_SET { param_id, type, value }`.
 
+#### 12.2.1 Catalog, staging and acknowledgement (capability `PARAMS`, bit 8)
+
+A device that sets capability bit `PARAMS` follows this subsection. It is
+additive: a device or GCS that does not know it keeps the behaviour above.
+
+- **Catalog.** `params.json`, beside `dialect.json`, is the single source of
+  every parameter: `id` (at most 16 characters, `[A-Z][A-Z0-9_]*`), `type`
+  (`U8 I8 U16 I16 U32 I32 F32`), closed range `min..max`, `default`, flags
+  (`READ_ONLY`, `LOCKED_WHEN_ARMED`, `REBOOT_REQUIRED`, `PERSISTED`), `group`,
+  and a `range_why` that says why the range is what it is. The generator
+  refuses a catalog with a duplicate or over-long id, `min > max`, a default
+  outside the range, a NaN or infinite bound, or a group that mixes locked and
+  unlocked members. `PARAM_VALUE.index` is the position in the catalog, so a
+  catalog only ever appends.
+- **Table.** The firmware compiles the generated table: `id[16]`, `type`,
+  `flags`, `group`, then `min`, `max`, `default` as 4 raw bytes each (the value
+  in its own type, little-endian, zero-padded; `F32` is the IEEE-754 pattern).
+- **`SYS_PTBL_CRC`.** A read-only `U32`: CRC-32 (as zlib) over `id`, `type`,
+  `flags`, `group`, `min`, `max` of every entry in order, except itself. A GCS
+  reads it first; a different value than its own catalog means the catalog is
+  not the one this firmware runs, and the GCS shows raw values read-only.
+- **`PARAM_SET.req_seq`.** An extension field. A non-zero `req_seq` asks for a
+  `COMMAND_ACK` (`command` = `PARAM_SET`), sent by the generated dispatch like
+  any other command. `0` means no acknowledgement is wanted (an older GCS).
+  Result mapping: not yet synchronised → `TEMPORARILY_REJECTED`; unknown id or
+  wrong type → `UNSUPPORTED`; read-only, locked while armed, out of range or
+  non-finite → `DENIED`; storage failure → `FAILED`.
+- **`PARAM_VALUE.flags`.** An extension field: bit 0 staged, bit 1 unsaved,
+  bit 2 differs from default, bit 3 reboot pending.
+- **Live and staged.** A parameter with `group` 0 applies at once and is marked
+  unsaved. A grouped parameter is only staged. `CMD_PARAM_COMMIT { req_seq, op,
+  group }` (`op` 0 commit, 1 discard; `group` 0 means every group) validates the
+  whole group, re-checks the armed lock, applies it as one unit and then
+  persists; the `COMMAND_ACK` is sent after the apply and the save are
+  accepted. Parameters that share an invariant (for example a lower and an
+  upper bound) must share a group.
+- **`CMD_NOTCH_AUTOBAND`.** Asks the device to choose the notch band from the
+  measured spectrum; acknowledged like any command.
+
 ### 12.3 Mission service
 
 `MISSION_COUNT`, `MISSION_REQUEST_INT { seq }`, `MISSION_ITEM_INT { seq, frame,

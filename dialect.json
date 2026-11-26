@@ -58,6 +58,24 @@
         { "name": "F32", "value": 9 },  { "name": "F64", "value": 10 }
       ]
     },
+    "param_commit_op": {
+      "section": "storage.param",
+      "doc": "CMD_PARAM_COMMIT.op (spec §12.2).",
+      "entries": [
+        { "name": "COMMIT",  "value": 0 },
+        { "name": "DISCARD", "value": 1 }
+      ]
+    },
+    "param_value_flags": {
+      "section": "storage.param",
+      "doc": "PARAM_VALUE.flags bits (spec §12.2). Bits a reader does not know are ignored.",
+      "entries": [
+        { "name": "STAGED",         "value": 1 },
+        { "name": "UNSAVED",        "value": 2 },
+        { "name": "NON_DEFAULT",    "value": 4 },
+        { "name": "REBOOT_PENDING", "value": 8 }
+      ]
+    },
     "sec_mode": {
       "section": "system",
       "doc": "CAPABILITIES.sec_modes bitmask (spec §17).",
@@ -261,7 +279,8 @@
         { "name": "NONE",            "value": 0 },
         { "name": "FAILSAFE_STATUS", "value": 1 },
         { "name": "GPS_RAW",         "value": 2 },
-        { "name": "SECURE_LINK",     "value": 4 }
+        { "name": "SECURE_LINK",     "value": 4 },
+        { "name": "PARAMS",          "value": 8 }
       ]
     }
   },
@@ -906,6 +925,26 @@
       ]
     },
     {
+      "msgid": 8208, "name": "CMD_PARAM_COMMIT", "section": "storage.param",
+      "doc": "Commit or discard staged parameters (spec §12.2). op COMMIT validates the whole group (every field's range and the group's cross-field rule), makes the staged values live all together and starts the save; op DISCARD drops what is staged. group selects one catalog group; 0 means every group and every parameter that is live but unsaved. COMMAND_ACK: ACCEPTED once the values are live and the save is accepted by the storage owner (the UNSAVED flag of PARAM_VALUE clears when the file is really written); DENIED if a field is out of range, a cross-field rule fails, or a locked group is committed while armed (the staged values are kept); UNSUPPORTED for a group the catalog does not have; TEMPORARILY_REJECTED while unsynchronised (spec §10.5); FAILED if the save cannot be started.",
+      "fields": [
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "op",          "type": "u8", "enum": "param_commit_op" },
+        { "index": 4, "name": "group",       "type": "u8", "doc": "catalog group id; 0 = all" }
+      ]
+    },
+    {
+      "msgid": 8209, "name": "CMD_NOTCH_AUTOBAND", "section": "flight.tuning",
+      "doc": "Arm a one-shot auto-band learn for the dynamic gyro notch: characterise the hover spectrum and tighten the analysis band around it (live-only, nothing is stored). This is the action that CMD_SET_GYRO_NOTCH.autoband used to carry inside a settings message; the notch settings themselves are parameters.",
+      "fields": [
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" }
+      ]
+    },
+    {
       "msgid": 12288, "name": "PARAM_REQUEST_LIST", "section": "storage.param",
       "doc": "Request a full parameter dump (spec §12.2).",
       "fields": [
@@ -932,18 +971,22 @@
         { "index": 2, "name": "count",      "type": "u16" },
         { "index": 3, "name": "generation", "type": "u32", "doc": "bumped on every PARAM_SET" },
         { "index": 4, "name": "type",       "type": "u8",  "enum": "param_type" },
-        { "index": 5, "name": "value",      "type": "u8",  "len": 8, "doc": "real value, LE, in 'type', <=8 B" }
+        { "index": 5, "name": "value",      "type": "u8",  "len": 8, "doc": "real value, LE, in 'type', <=8 B" },
+        { "index": 6, "name": "flags",      "type": "u8",  "extension": true,
+          "doc": "param_value_flags bits. STAGED: the value shown is staged, not live (a grouped parameter before its commit). UNSAVED: live but not yet written to storage. NON_DEFAULT: differs from the catalog default. REBOOT_PENDING: takes effect after a reboot. 0 from a peer that predates this field." }
       ]
     },
     {
-      "msgid": 12291, "name": "PARAM_SET", "section": "storage.param",
-      "doc": "Write one parameter; answered by the updated PARAM_VALUE (spec §12.2).",
+      "msgid": 12291, "name": "PARAM_SET", "section": "storage.param", "ack": true,
+      "doc": "Write one parameter (spec §12.2). The receiver answers COMMAND_ACK (ACCEPTED, or DENIED / UNSUPPORTED / TEMPORARILY_REJECTED / FAILED with the reason) and, on ACCEPTED, the updated PARAM_VALUE. req_seq correlates the ack; 0 from a sender that predates the field (it gets no useful ack, only the PARAM_VALUE).",
       "fields": [
         { "index": 0, "name": "target_sys",  "type": "u8" },
         { "index": 1, "name": "target_comp", "type": "u8" },
         { "index": 2, "name": "param_id",    "type": "char", "len": 16 },
         { "index": 3, "name": "type",        "type": "u8", "enum": "param_type" },
-        { "index": 4, "name": "value",       "type": "u8", "len": 8 }
+        { "index": 4, "name": "value",       "type": "u8", "len": 8 },
+        { "index": 5, "name": "req_seq",     "type": "u8", "extension": true,
+          "doc": "ack correlation, 1..255; 0 = sender predates this field" }
       ]
     },
     {
