@@ -94,6 +94,10 @@ add_library(navlink_sec STATIC sec/navlink_sec.c sec/navlink_sess.c
             vendor/monocypher/monocypher.c)
 target_include_directories(navlink_sec PUBLIC sec vendor/monocypher)
 set_target_properties(navlink_sec PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+# One section per function and datum, so a consumer's --gc-sections drops the
+# parts of Monocypher it never calls (the vendored file is about 144 KB of code
+# in one section otherwise, and the secured layer needs a small part of it).
+target_compile_options(navlink_sec PRIVATE -ffunction-sections -fdata-sections)
 add_library(navlink::sec ALIAS navlink_sec)
 
 # A consumer that builds navlink through a tool that links only the `navlink`
