@@ -65,12 +65,21 @@ class TestShippedCatalog(unittest.TestCase):
         self.assertEqual(r["params"][0]["id"], "SYS_PTBL_CRC")
         self.assertEqual(r["params"][0]["default"], r["table_crc"])
 
-    def test_crc_ignores_defaults_and_docs(self):
+    def test_crc_ignores_docs_and_units(self):
         a = catalog.table_crc(REAL)
         b = copy.deepcopy(REAL)
-        b["params"][1]["default"] = b["params"][1]["max"]
         b["params"][1]["doc"] = "changed"
+        b["params"][1]["unit"] = "x"
+        b["params"][1]["range_why"] = "changed"
         self.assertEqual(catalog.table_crc(b), a)
+
+    def test_crc_covers_the_default(self):
+        # a firmware that changes a default must not keep the same CRC
+        a = catalog.table_crc(REAL)
+        b = copy.deepcopy(REAL)
+        e = b["params"][1]
+        e["default"] = e["max"]
+        self.assertNotEqual(catalog.table_crc(b), a)
 
     def test_crc_changes_with_range_type_flags_group_and_order(self):
         base = catalog.table_crc(REAL)
@@ -87,7 +96,8 @@ class TestShippedCatalog(unittest.TestCase):
 
     def test_crc_matches_a_hand_computation(self):
         c = cat(entry(id="A", type="U8", min=0, max=9, default=1, flags=["PERSISTED"]))
-        blob = b"A".ljust(16, b"\0") + bytes([1, 0x08, 0]) + b"\x00\0\0\0" + b"\x09\0\0\0"
+        blob = (b"A".ljust(16, b"\0") + bytes([1, 0x08, 0]) + b"\x00\0\0\0"
+                + b"\x09\0\0\0" + b"\x01\0\0\0")
         self.assertEqual(catalog.table_crc(c), zlib.crc32(blob) & 0xFFFFFFFF)
 
     def test_c_table_text_matches_python(self):
@@ -96,6 +106,19 @@ class TestShippedCatalog(unittest.TestCase):
         self.assertIn(f"NAVLINK_PARAM_COUNT {len(r['params'])}u", h)
         self.assertIn(f"0x{r['table_crc']:08X}u", h)
         self.assertEqual(c.count("{ \""), len(r["params"]))
+
+
+class TestRangesAreNotLoopOff(unittest.TestCase):
+    def test_kp_minimum_cannot_turn_the_loop_off(self):
+        for p in REAL["params"]:
+            if p["id"].endswith("_KP"):
+                self.assertGreaterEqual(p["min"], 0.25 * p["default"] * 0.999999, p["id"])
+                self.assertGreater(p["min"], 0, p["id"])
+
+    def test_gyro_lpf_is_below_16_hz_cutoff_time_constant(self):
+        for p in REAL["params"]:
+            if p["id"].startswith("GLPF_"):
+                self.assertLessEqual(p["max"], 0.01, p["id"])
 
 
 class TestRawWords(unittest.TestCase):

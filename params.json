@@ -45,7 +45,7 @@
     {
       "id": "RATE_ROLL_KP",
       "type": "F32",
-      "min": 0.0,
+      "min": 0.00075,
       "max": 1.0,
       "default": 0.003,
       "flags": [
@@ -55,7 +55,7 @@
       "group": 1,
       "unit": "",
       "doc": "Roll rate PID proportional gain (normalised output per deg/s).",
-      "range_why": "proposed 0..1: the survey's range for Kp; the compiled gains are about 0.003, so 1.0 is more than 300x above them."
+      "range_why": "proposed 0.00075..1: the survey's range for Kp; the compiled gains are about 0.003, so 1.0 is more than 300x above them. The minimum is 0.25x the compiled value so that one write cannot turn the loop off."
     },
     {
       "id": "RATE_ROLL_KI",
@@ -105,7 +105,7 @@
     {
       "id": "RATE_PITCH_KP",
       "type": "F32",
-      "min": 0.0,
+      "min": 0.000625,
       "max": 1.0,
       "default": 0.0025,
       "flags": [
@@ -115,7 +115,7 @@
       "group": 2,
       "unit": "",
       "doc": "Pitch rate PID proportional gain (normalised output per deg/s).",
-      "range_why": "proposed 0..1: the survey's range for Kp; the compiled gains are about 0.003, so 1.0 is more than 300x above them."
+      "range_why": "proposed 0.000625..1: the survey's range for Kp; the compiled gains are about 0.003, so 1.0 is more than 300x above them. The minimum is 0.25x the compiled value so that one write cannot turn the loop off."
     },
     {
       "id": "RATE_PITCH_KI",
@@ -165,7 +165,7 @@
     {
       "id": "RATE_YAW_KP",
       "type": "F32",
-      "min": 0.0,
+      "min": 0.001,
       "max": 1.0,
       "default": 0.004,
       "flags": [
@@ -175,7 +175,7 @@
       "group": 3,
       "unit": "",
       "doc": "Yaw rate PID proportional gain (normalised output per deg/s).",
-      "range_why": "proposed 0..1: the survey's range for Kp; the compiled gains are about 0.003, so 1.0 is more than 300x above them."
+      "range_why": "proposed 0.001..1: the survey's range for Kp; the compiled gains are about 0.003, so 1.0 is more than 300x above them. The minimum is 0.25x the compiled value so that one write cannot turn the loop off."
     },
     {
       "id": "RATE_YAW_KI",
@@ -225,7 +225,7 @@
     {
       "id": "ANG_ROLL_KP",
       "type": "F32",
-      "min": 0.0,
+      "min": 0.75,
       "max": 20.0,
       "default": 3.0,
       "flags": [
@@ -235,12 +235,12 @@
       "group": 4,
       "unit": "1/s",
       "doc": "Roll angle-loop proportional gain (deg/s of rate command per degree of error).",
-      "range_why": "proposed 0..20: the survey's range; compiled values are 3.0 (roll, pitch) and 1.2 (yaw)."
+      "range_why": "proposed 0.75..20: the survey's range; compiled values are 3.0 (roll, pitch) and 1.2 (yaw). The minimum is 0.25x the compiled value so that one write cannot turn the loop off."
     },
     {
       "id": "ANG_PITCH_KP",
       "type": "F32",
-      "min": 0.0,
+      "min": 0.75,
       "max": 20.0,
       "default": 3.0,
       "flags": [
@@ -250,12 +250,12 @@
       "group": 4,
       "unit": "1/s",
       "doc": "Pitch angle-loop proportional gain (deg/s of rate command per degree of error).",
-      "range_why": "proposed 0..20: the survey's range; compiled values are 3.0 (roll, pitch) and 1.2 (yaw)."
+      "range_why": "proposed 0.75..20: the survey's range; compiled values are 3.0 (roll, pitch) and 1.2 (yaw). The minimum is 0.25x the compiled value so that one write cannot turn the loop off."
     },
     {
       "id": "ANG_YAW_KP",
       "type": "F32",
-      "min": 0.0,
+      "min": 0.3,
       "max": 20.0,
       "default": 1.2,
       "flags": [
@@ -265,13 +265,13 @@
       "group": 4,
       "unit": "1/s",
       "doc": "Yaw angle-loop proportional gain (deg/s of rate command per degree of error).",
-      "range_why": "proposed 0..20: the survey's range; compiled values are 3.0 (roll, pitch) and 1.2 (yaw)."
+      "range_why": "proposed 0.3..20: the survey's range; compiled values are 3.0 (roll, pitch) and 1.2 (yaw). The minimum is 0.25x the compiled value so that one write cannot turn the loop off."
     },
     {
       "id": "GLPF_ROLL_RC",
       "type": "F32",
       "min": 0.0,
-      "max": 0.1,
+      "max": 0.01,
       "default": 0.0,
       "flags": [
         "LOCKED_WHEN_ARMED",
@@ -280,13 +280,13 @@
       "group": 0,
       "unit": "s",
       "doc": "Roll gyro low-pass time constant; 0 turns the filter off.",
-      "range_why": "proposed 0..0.1 s: 100 ms is already far lower than the control bandwidth; the compiled default is off."
+      "range_why": "proposed 0..0.01 s (16 Hz cutoff at the top): a longer time constant on the rate-loop gyro adds phase lag below the control bandwidth and the loop oscillates; the compiled default is off (0)."
     },
     {
       "id": "GLPF_PITCH_RC",
       "type": "F32",
       "min": 0.0,
-      "max": 0.1,
+      "max": 0.01,
       "default": 0.0,
       "flags": [
         "LOCKED_WHEN_ARMED",
@@ -295,13 +295,13 @@
       "group": 0,
       "unit": "s",
       "doc": "Pitch gyro low-pass time constant; 0 turns the filter off.",
-      "range_why": "proposed 0..0.1 s: 100 ms is already far lower than the control bandwidth; the compiled default is off."
+      "range_why": "proposed 0..0.01 s (16 Hz cutoff at the top): a longer time constant on the rate-loop gyro adds phase lag below the control bandwidth and the loop oscillates; the compiled default is off (0)."
     },
     {
       "id": "GLPF_YAW_RC",
       "type": "F32",
       "min": 0.0,
-      "max": 0.1,
+      "max": 0.01,
       "default": 0.0,
       "flags": [
         "LOCKED_WHEN_ARMED",
@@ -310,7 +310,7 @@
       "group": 0,
       "unit": "s",
       "doc": "Yaw gyro low-pass time constant; 0 turns the filter off.",
-      "range_why": "proposed 0..0.1 s: 100 ms is already far lower than the control bandwidth; the compiled default is off."
+      "range_why": "proposed 0..0.01 s (16 Hz cutoff at the top): a longer time constant on the rate-loop gyro adds phase lag below the control bandwidth and the loop oscillates; the compiled default is off (0)."
     },
     {
       "id": "DLPF_ROLL_RC",

@@ -30,9 +30,11 @@ Wire and table facts (spec 12.2):
   - min, max and default are stored as 4 raw bytes: the value in its own type,
     little-endian, zero-padded to 4 bytes (I8 -1 is FF 00 00 00; F32 is IEEE-754).
   - the range is a closed interval: a value equal to min or max is allowed.
-  - the table CRC (CRC-32, as zlib) covers id, type, flags, group, min and max of
-    every entry in order, except an entry whose default is "@table_crc" (the entry
-    that reports the CRC cannot be part of it).
+  - the table CRC (CRC-32, as zlib) covers id, type, flags, group, min, max and
+    default of every entry in order, except an entry whose default is "@table_crc"
+    (the entry that reports the CRC cannot be part of it). The default is in it so
+    that a firmware that changes a default is told apart by the GCS, whose
+    "reset to default" would otherwise write the old value.
 """
 from __future__ import annotations
 
@@ -210,7 +212,7 @@ def flags_byte(p):
 
 
 def table_crc(pc):
-    """CRC-32 of id, type, flags, group, min, max of every entry (see the module doc)."""
+    """CRC-32 of id, type, flags, group, min, max, default of every entry (module doc)."""
     crc = 0
     for p in pc["params"]:
         if p["default"] == TABLE_CRC_DEFAULT:
@@ -218,6 +220,7 @@ def table_crc(pc):
         blob = p["id"].encode("ascii").ljust(ID_MAX, b"\0")
         blob += bytes([TYPES[p["type"]][0], flags_byte(p), p.get("group", 0)])
         blob += raw4(p["type"], p["min"]) + raw4(p["type"], p["max"])
+        blob += raw4(p["type"], p["default"])
         crc = zlib.crc32(blob, crc)
     return crc & 0xFFFFFFFF
 

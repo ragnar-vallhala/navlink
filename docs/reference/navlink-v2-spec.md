@@ -1139,7 +1139,8 @@ additive: a device or GCS that does not know it keeps the behaviour above.
   `flags`, `group`, then `min`, `max`, `default` as 4 raw bytes each (the value
   in its own type, little-endian, zero-padded; `F32` is the IEEE-754 pattern).
 - **`SYS_PTBL_CRC`.** A read-only `U32`: CRC-32 (as zlib) over `id`, `type`,
-  `flags`, `group`, `min`, `max` of every entry in order, except itself. A GCS
+  `flags`, `group`, `min`, `max`, `default` of every entry in order, except
+  itself. The default is in it so that a changed default is noticed. A GCS
   reads it first; a different value than its own catalog means the catalog is
   not the one this firmware runs, and the GCS shows raw values read-only.
 - **`PARAM_SET.req_seq`.** An extension field. A non-zero `req_seq` asks for a
