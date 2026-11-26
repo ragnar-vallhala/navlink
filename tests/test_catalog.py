@@ -121,6 +121,40 @@ class TestRangesAreNotLoopOff(unittest.TestCase):
                 self.assertLessEqual(p["max"], 0.01, p["id"])
 
 
+class TestGainCap(unittest.TestCase):
+    """ashu's decision (relayed by the coordinator, 2026-11-26): a firmware refuses any
+    gain above 10x the compiled value."""
+    def by(self):
+        return {p["id"]: p for p in REAL["params"]}
+
+    def test_every_gain_is_at_most_10x_its_default(self):
+        b = self.by()
+        for ax in ("ROLL", "PITCH", "YAW"):
+            for k in ("KP", "KI", "KD"):
+                p = b[f"RATE_{ax}_{k}"]
+                if p["default"] > 0:
+                    self.assertLessEqual(p["max"], 10 * p["default"] * 1.000001, p["id"])
+                    self.assertGreaterEqual(p["max"], p["default"], p["id"])
+            a = b[f"ANG_{ax}_KP"]
+            self.assertLessEqual(a["max"], 10 * a["default"] * 1.000001, a["id"])
+
+    def test_zero_default_gains_keep_a_small_max(self):
+        b = self.by()
+        for ax in ("ROLL", "PITCH", "YAW"):
+            kff = b[f"RATE_{ax}_KFF"]
+            self.assertEqual(kff["default"], 0)
+            self.assertLessEqual(kff["max"], 10 * b[f"RATE_{ax}_KP"]["default"] * 1.000001)
+            self.assertGreater(kff["max"], 0)
+        self.assertEqual(b["RATE_YAW_KD"]["max"], b["RATE_ROLL_KD"]["max"])
+
+    def test_no_gain_range_is_the_old_typo_envelope(self):
+        for p in REAL["params"]:
+            if p["id"].startswith(("RATE_", "ANG_")):
+                self.assertLess(p["max"], 31, p["id"])
+                if p["id"].startswith("RATE_"):
+                    self.assertLessEqual(p["max"], 0.1, p["id"])
+
+
 class TestRawWords(unittest.TestCase):
     def test_small_ints_are_zero_padded_not_sign_extended(self):
         self.assertEqual(catalog.raw4("I8", -1), b"\xff\0\0\0")

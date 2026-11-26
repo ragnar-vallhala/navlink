@@ -46,7 +46,7 @@
       "id": "RATE_ROLL_KP",
       "type": "F32",
       "min": 0.00075,
-      "max": 1.0,
+      "max": 0.03,
       "default": 0.003,
       "flags": [
         "LOCKED_WHEN_ARMED",
@@ -55,13 +55,13 @@
       "group": 1,
       "unit": "",
       "doc": "Roll rate PID proportional gain (normalised output per deg/s).",
-      "range_why": "proposed 0.00075..1: the survey's range for Kp; the compiled gains are about 0.003, so 1.0 is more than 300x above them. The minimum is 0.25x the compiled value so that one write cannot turn the loop off."
+      "range_why": "proposed min 0.00075. ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the compiled value (0.003). The minimum is 0.25x the compiled value so that one write cannot turn the loop off."
     },
     {
       "id": "RATE_ROLL_KI",
       "type": "F32",
       "min": 0.0,
-      "max": 1.0,
+      "max": 0.0811,
       "default": 0.00811,
       "flags": [
         "LOCKED_WHEN_ARMED",
@@ -70,13 +70,13 @@
       "group": 1,
       "unit": "",
       "doc": "Roll rate PID integral gain.",
-      "range_why": "proposed 0..1: the survey's range for Ki; compiled gains are about 0.003 to 0.008."
+      "range_why": "min 0 (a gain may be switched off). ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the compiled value (0.00811)."
     },
     {
       "id": "RATE_ROLL_KD",
       "type": "F32",
       "min": 0.0,
-      "max": 0.01,
+      "max": 0.0005,
       "default": 5e-05,
       "flags": [
         "LOCKED_WHEN_ARMED",
@@ -85,13 +85,13 @@
       "group": 1,
       "unit": "",
       "doc": "Roll rate PID derivative gain.",
-      "range_why": "proposed 0..0.01: the survey's range for Kd; the compiled value is 0.00005 (0 for yaw)."
+      "range_why": "min 0 (a gain may be switched off). ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the compiled value (5e-05)."
     },
     {
       "id": "RATE_ROLL_KFF",
       "type": "F32",
       "min": 0.0,
-      "max": 1.0,
+      "max": 0.03,
       "default": 0.0,
       "flags": [
         "LOCKED_WHEN_ARMED",
@@ -100,13 +100,13 @@
       "group": 1,
       "unit": "",
       "doc": "Roll rate PID feed-forward gain.",
-      "range_why": "proposed 0..1: the survey's range for Kff; compiled value 0 (off)."
+      "range_why": "min 0 (a gain may be switched off). ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the axis Kp default (0.003): the compiled Kff is 0 (off), so there is no value of its own to scale."
     },
     {
       "id": "RATE_PITCH_KP",
       "type": "F32",
       "min": 0.000625,
-      "max": 1.0,
+      "max": 0.025,
       "default": 0.0025,
       "flags": [
         "LOCKED_WHEN_ARMED",
@@ -115,13 +115,13 @@
       "group": 2,
       "unit": "",
       "doc": "Pitch rate PID proportional gain (normalised output per deg/s).",
-      "range_why": "proposed 0.000625..1: the survey's range for Kp; the compiled gains are about 0.003, so 1.0 is more than 300x above them. The minimum is 0.25x the compiled value so that one write cannot turn the loop off."
+      "range_why": "proposed min 0.000625. ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the compiled value (0.0025). The minimum is 0.25x the compiled value so that one write cannot turn the loop off."
     },
     {
       "id": "RATE_PITCH_KI",
       "type": "F32",
       "min": 0.0,
-      "max": 1.0,
+      "max": 0.03,
       "default": 0.003,
       "flags": [
         "LOCKED_WHEN_ARMED",
@@ -130,13 +130,13 @@
       "group": 2,
       "unit": "",
       "doc": "Pitch rate PID integral gain.",
-      "range_why": "proposed 0..1: the survey's range for Ki; compiled gains are about 0.003 to 0.008."
+      "range_why": "min 0 (a gain may be switched off). ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the compiled value (0.003)."
     },
     {
       "id": "RATE_PITCH_KD",
       "type": "F32",
       "min": 0.0,
-      "max": 0.01,
+      "max": 0.0005,
       "default": 5e-05,
       "flags": [
         "LOCKED_WHEN_ARMED",
@@ -145,13 +145,13 @@
       "group": 2,
       "unit": "",
       "doc": "Pitch rate PID derivative gain.",
-      "range_why": "proposed 0..0.01: the survey's range for Kd; the compiled value is 0.00005 (0 for yaw)."
+      "range_why": "min 0 (a gain may be switched off). ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the compiled value (5e-05)."
     },
     {
       "id": "RATE_PITCH_KFF",
       "type": "F32",
       "min": 0.0,
-      "max": 1.0,
+      "max": 0.025,
       "default": 0.0,
       "flags": [
         "LOCKED_WHEN_ARMED",
@@ -160,13 +160,13 @@
       "group": 2,
       "unit": "",
       "doc": "Pitch rate PID feed-forward gain.",
-      "range_why": "proposed 0..1: the survey's range for Kff; compiled value 0 (off)."
+      "range_why": "min 0 (a gain may be switched off). ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the axis Kp default (0.0025): the compiled Kff is 0 (off), so there is no value of its own to scale."
     },
     {
       "id": "RATE_YAW_KP",
       "type": "F32",
       "min": 0.001,
-      "max": 1.0,
+      "max": 0.04,
       "default": 0.004,
       "flags": [
         "LOCKED_WHEN_ARMED",
@@ -175,13 +175,13 @@
       "group": 3,
       "unit": "",
       "doc": "Yaw rate PID proportional gain (normalised output per deg/s).",
-      "range_why": "proposed 0.001..1: the survey's range for Kp; the compiled gains are about 0.003, so 1.0 is more than 300x above them. The minimum is 0.25x the compiled value so that one write cannot turn the loop off."
+      "range_why": "proposed min 0.001. ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the compiled value (0.004). The minimum is 0.25x the compiled value so that one write cannot turn the loop off."
     },
     {
       "id": "RATE_YAW_KI",
       "type": "F32",
       "min": 0.0,
-      "max": 1.0,
+      "max": 0.08,
       "default": 0.008,
       "flags": [
         "LOCKED_WHEN_ARMED",
@@ -190,13 +190,13 @@
       "group": 3,
       "unit": "",
       "doc": "Yaw rate PID integral gain.",
-      "range_why": "proposed 0..1: the survey's range for Ki; compiled gains are about 0.003 to 0.008."
+      "range_why": "min 0 (a gain may be switched off). ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the compiled value (0.008)."
     },
     {
       "id": "RATE_YAW_KD",
       "type": "F32",
       "min": 0.0,
-      "max": 0.01,
+      "max": 0.0005,
       "default": 0.0,
       "flags": [
         "LOCKED_WHEN_ARMED",
@@ -205,13 +205,13 @@
       "group": 3,
       "unit": "",
       "doc": "Yaw rate PID derivative gain.",
-      "range_why": "proposed 0..0.01: the survey's range for Kd; the compiled value is 0.00005 (0 for yaw)."
+      "range_why": "min 0 (a gain may be switched off). ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max is roll's Kd max (the compiled yaw Kd is 0, so there is no value of its own to scale)."
     },
     {
       "id": "RATE_YAW_KFF",
       "type": "F32",
       "min": 0.0,
-      "max": 1.0,
+      "max": 0.04,
       "default": 0.0,
       "flags": [
         "LOCKED_WHEN_ARMED",
@@ -220,13 +220,13 @@
       "group": 3,
       "unit": "",
       "doc": "Yaw rate PID feed-forward gain.",
-      "range_why": "proposed 0..1: the survey's range for Kff; compiled value 0 (off)."
+      "range_why": "min 0 (a gain may be switched off). ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value; max 10x the axis Kp default (0.004): the compiled Kff is 0 (off), so there is no value of its own to scale."
     },
     {
       "id": "ANG_ROLL_KP",
       "type": "F32",
       "min": 0.75,
-      "max": 20.0,
+      "max": 30.0,
       "default": 3.0,
       "flags": [
         "LOCKED_WHEN_ARMED",
@@ -235,13 +235,13 @@
       "group": 4,
       "unit": "1/s",
       "doc": "Roll angle-loop proportional gain (deg/s of rate command per degree of error).",
-      "range_why": "proposed 0.75..20: the survey's range; compiled values are 3.0 (roll, pitch) and 1.2 (yaw). The minimum is 0.25x the compiled value so that one write cannot turn the loop off."
+      "range_why": "ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value (3); the minimum is 0.25x the compiled value so that one write cannot turn the loop off."
     },
     {
       "id": "ANG_PITCH_KP",
       "type": "F32",
       "min": 0.75,
-      "max": 20.0,
+      "max": 30.0,
       "default": 3.0,
       "flags": [
         "LOCKED_WHEN_ARMED",
@@ -250,13 +250,13 @@
       "group": 4,
       "unit": "1/s",
       "doc": "Pitch angle-loop proportional gain (deg/s of rate command per degree of error).",
-      "range_why": "proposed 0.75..20: the survey's range; compiled values are 3.0 (roll, pitch) and 1.2 (yaw). The minimum is 0.25x the compiled value so that one write cannot turn the loop off."
+      "range_why": "ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value (3); the minimum is 0.25x the compiled value so that one write cannot turn the loop off."
     },
     {
       "id": "ANG_YAW_KP",
       "type": "F32",
       "min": 0.3,
-      "max": 20.0,
+      "max": 12.0,
       "default": 1.2,
       "flags": [
         "LOCKED_WHEN_ARMED",
@@ -265,7 +265,7 @@
       "group": 4,
       "unit": "1/s",
       "doc": "Yaw angle-loop proportional gain (deg/s of rate command per degree of error).",
-      "range_why": "proposed 0.3..20: the survey's range; compiled values are 3.0 (roll, pitch) and 1.2 (yaw). The minimum is 0.25x the compiled value so that one write cannot turn the loop off."
+      "range_why": "ashu's decision, relayed by the coordinator on 2026-11-26: at most 10x the compiled value (1.2); the minimum is 0.25x the compiled value so that one write cannot turn the loop off."
     },
     {
       "id": "GLPF_ROLL_RC",
