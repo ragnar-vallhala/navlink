@@ -473,7 +473,7 @@ trailer. Any buffer sized from the macro grows by 20 bytes: re-check stack
 frames and static buffers sized from it, and any transport with its own frame
 limit (a bridge, a radio MTU).
 
-**3. A frame with the encrypted bit is no longer ignored as unknown.** With
+**3. A frame with the encrypted bit can now be routed to a hook.** With
 `secure_open` NULL the parser rejects it at the header, as before. With the hook
 set, it is routed whole to the hook, which owns the tag, counter and decrypt
 (spec §11.9.1). Nothing is dispatched before the tag verifies.
@@ -485,3 +485,10 @@ set, it is routed whole to the hook, which owns the tag, counter and decrypt
 2. To use it, set `secure_open` (and, for strict mode, `accept_unsecured`), and
    route every outgoing frame through `navlink_fc_seal` or the GCS equivalent.
 3. Python: `Handlers` takes the same two new keyword arguments, `None` by default.
+
+**Linking the secured layer (navlink 4.1).** The sec sources are their own CMake
+target, `navlink_sec`. A consumer built by `nav`, which links only the `navlink`
+target, sets `options = ["NAVLINK_SEC=ON"]` on the dependency in `nav.toml`; the
+layer and its headers (`navlink_sess.h`, Monocypher) then come with `navlink`. The
+default is OFF and changes nothing: the layer is an archive, so code that never
+calls it links none of it.
