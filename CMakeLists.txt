@@ -82,8 +82,9 @@ add_custom_target(navlink_generate DEPENDS ${GEN_C}/navlink_msgs.c)
 # The library a consumer links. navlink_parity.c is deliberately not in it: it
 # is a host-only test helper (printf of every message's bytes for the C<->Python
 # parity check) and would drag stdio into a firmware image. The target name
-# equals nav.toml [project].name, as nav requires.
-add_library(navlink STATIC ${GEN_C}/navlink_msgs.c)
+# equals nav.toml [project].name, as nav requires. navlink_params.c is the
+# parameter catalog table (const data, no libc), which a firmware reads by name.
+add_library(navlink STATIC ${GEN_C}/navlink_msgs.c ${GEN_C}/navlink_params.c)
 add_dependencies(navlink navlink_generate)
 target_include_directories(navlink PUBLIC $<BUILD_INTERFACE:${GEN_C}>)
 set_target_properties(navlink PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
