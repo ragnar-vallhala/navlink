@@ -70,7 +70,6 @@ typedef struct {
 typedef struct {
   navlink_session_t s;
   uint32_t since_ms;
-  uint32_t last_ms; /* of this peer's last accepted HELLO */
   uint32_t peer;
 } navlink_pending_t;
 
@@ -129,8 +128,9 @@ int navlink_fc_hello(navlink_fc_t *fc, uint32_t now_ms,
 
 /* Same, for a transport that can tell senders apart (a UDP source address, hashed
  * to a non-zero id): a peer holds at most ONE pending slot (its next HELLO
- * replaces its own), and is limited to one HELLO per second on its own, so a
- * flooder from one address cannot use the budget or the slots of another.
+ * replaces its own) and may send one HELLO per second. The HELLO budget is still
+ * ONE budget for all senders: a flooder that keeps changing its id (a rotating
+ * source port) can spend it and delay a real HELLO (ERR_RATE until it refills).
  * peer 0 is "unknown" and behaves as navlink_fc_hello(). */
 int navlink_fc_hello_peer(navlink_fc_t *fc, uint32_t now_ms, uint32_t peer,
                           const uint8_t gcs_nonce[16], uint8_t *reply);

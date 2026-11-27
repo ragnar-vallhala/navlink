@@ -1028,8 +1028,9 @@ sender's HELLO cannot replace the real ground station's before its first secured
 frame arrives. The rate limit is a budget of 4 HELLOs that refills at one per
 second (not a fixed 1 s gap), so a sender at 1 HELLO/s cannot use up the second
 the real HELLO lands in. A transport that can tell senders apart passes a peer
-id: a peer then holds one slot (its next HELLO replaces its own) and has its own
-1/s limit, so a flooder at one address cannot spend another's. The first frame
+id: a peer then holds one slot (its next HELLO replaces its own) and may send one
+HELLO per second. The budget is shared by all senders, so a flooder that changes
+its id can still spend it; this bounds the work, not who gets served. The first frame
 that verifies under any pending session promotes that session; the others wait
 for their own first frame or the timeout. The pending
 session becomes live, and the old live session is dropped, **only when the first

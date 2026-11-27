@@ -139,7 +139,7 @@ int navlink_fc_hello_peer(navlink_fc_t *fc, uint32_t now_ms, uint32_t peer,
   if (peer != 0u)
     for (int i = 0; i < NAVLINK_SESS_PENDING_SLOTS; ++i)
       if (fc->pending[i].s.valid && fc->pending[i].peer == peer) {
-        if ((uint32_t)(now_ms - fc->pending[i].last_ms) <
+        if ((uint32_t)(now_ms - fc->pending[i].since_ms) <
             NAVLINK_SESS_HELLO_MIN_GAP_MS)
           return NAVLINK_SESS_ERR_RATE; /* this sender, inside its own 1/s */
         slot = i;
@@ -175,7 +175,6 @@ int navlink_fc_hello_peer(navlink_fc_t *fc, uint32_t now_ms, uint32_t peer,
   drop(&pd->s);
   make_session(&pd->s, 1, fc->k, gcs_nonce, fc->boot_ctr, fc->hs_ctr, fc->uid);
   pd->since_ms = now_ms;
-  pd->last_ms = now_ms;
   pd->peer = peer;
 
   memcpy(reply, gcs_nonce, 16);

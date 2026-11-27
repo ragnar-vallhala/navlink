@@ -113,7 +113,7 @@ def test_rate_repeat_ring():
 
 
 def test_flood_does_not_starve_connect():
-    """Todo 71 (4): a keyless sender's HELLOs, one inside the real HELLO's second and
+    """A keyless sender's HELLOs, one inside the real HELLO's second and
     some before the real first frame, do not stop the connect."""
     fc, g = hs.Fc(k, uid, 7), hs.Gcs(k)
     for i in range(4):

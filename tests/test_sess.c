@@ -209,7 +209,7 @@ static void test_rate_and_repeat(void) {
   assert(navlink_fc_hello(&f2, 0xFFFFFF00u + 1000u, n, reply) == 52);
 }
 
-/* Todo 71 (4): a keyless sender sending a HELLO per second, one landing between the
+/* A keyless sender sending a HELLO per second, one landing between the
  * real HELLO and the real first frame, must not stop the connect. With one pending
  * slot and a fixed 1 s gap the real HELLO was refused or its slot was replaced. */
 static void test_flood_does_not_starve_connect(void) {
@@ -239,6 +239,23 @@ static void test_flood_does_not_starve_connect(void) {
   assert(l > 0);
   assert(navlink_fc_open(&fc, 3700, f, (size_t)l, &h, out) == 4);
   assert(fc.live.valid);
+}
+
+/* The budget is shared: a flooder that rotates its peer id spends it, and the
+ * real HELLO is then refused until it refills. This documents the limit. */
+static void test_rotating_peer_flood_spends_shared_budget(void) {
+  navlink_fc_t fc;
+  uint8_t n[16], reply[52];
+  assert(navlink_fc_init(&fc, K, UID, 7) == 0);
+  int ok = 0;
+  for (uint32_t p = 100; p < 120; p++) { /* 20 HELLOs in 20 ms, a new id each */
+    nonce(n, (uint8_t)p);
+    ok += navlink_fc_hello_peer(&fc, p - 100u, p, n, reply) == 52;
+  }
+  assert(ok == (int)NAVLINK_SESS_HELLO_BURST); /* only the burst got through */
+  nonce(n, 0xEE);
+  assert(navlink_fc_hello_peer(&fc, 30, 5, n, reply) == NAVLINK_SESS_ERR_RATE);
+  assert(navlink_fc_hello_peer(&fc, 1030, 5, n, reply) == 52); /* a second later */
 }
 
 /* With a peer id, one sender holds one slot and has its own 1/s limit. */
@@ -488,6 +505,7 @@ int main(void) {
   test_promotion_and_old_session();
   test_rate_and_repeat();
   test_flood_does_not_starve_connect();
+  test_rotating_peer_flood_spends_shared_budget();
   test_peer_slots();
   test_ring_forgets_old();
   test_same_hello_different_keys();

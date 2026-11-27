@@ -103,10 +103,10 @@ class Gcs:
 
 
 class _Pending:
-    __slots__ = ("session", "since", "last", "peer")
+    __slots__ = ("session", "since", "peer")
 
     def __init__(self, session, now, peer):
-        self.session, self.since, self.last, self.peer = session, now, now, peer
+        self.session, self.since, self.peer = session, now, peer
 
 
 class Fc:
@@ -139,7 +139,8 @@ class Fc:
 
     def hello(self, now, nonce, peer=0):
         """peer: the transport's id of the sender (non-zero), or 0 for unknown. A
-        known peer holds one slot and has its own 1/s limit."""
+        known peer holds one slot and may send one HELLO per second; the budget itself is
+        shared by all senders."""
         if self.closed or self.hs == 0xFFFFFFFF:
             self.closed = True
             raise HsError("closed")
@@ -148,7 +149,7 @@ class Fc:
         if peer:
             for i, p in enumerate(self.slots):
                 if p is not None and p.peer == peer:
-                    if now - p.last < HELLO_MIN_GAP_S:
+                    if now - p.since < HELLO_MIN_GAP_S:
                         raise HsError("rate")
                     slot = i
         if self._budget(now) < HELLO_MIN_GAP_S:
