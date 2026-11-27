@@ -78,7 +78,12 @@ typedef struct {
 #ifndef NAVLINK_SEC_REPLAY_WINDOW
 #define NAVLINK_SEC_REPLAY_WINDOW 16u
 #endif
-
+/* The window of the GCS->FC direction, which carries commands: 0 (strict) by
+ * default. A window lets a captured command be held back and delivered after a
+ * later one, so the command direction does not get one unless the build asks. */
+#ifndef NAVLINK_SEC_REPLAY_WINDOW_CMD
+#define NAVLINK_SEC_REPLAY_WINDOW_CMD 0u
+#endif
 /* The receiving side of one direction of one session. */
 typedef struct {
   uint8_t key[NAVLINK_SEC_KEY_LEN];
@@ -86,6 +91,7 @@ typedef struct {
   uint64_t seen; /* bit i set: counter last - i was accepted (bit 0 is `last`) */
   uint8_t dir;
   uint8_t have;
+  uint8_t window; /* this direction's reorder window, set by navlink_sec_rx_init */
 } navlink_sec_rx_t;
 
 /* The fields of a frame header that the caller supplies and gets back. */

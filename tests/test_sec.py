@@ -78,9 +78,9 @@ def test_failures():
     expect_error(lambda: s.Rx(ks, s.DIR_GCS_TO_FC).open(bytes(g)), "format")
     expect_error(lambda: s.Rx(ks, s.DIR_GCS_TO_FC).open(f[:-1]), "size")
     # reorder
-    tx = s.Tx(ks, s.DIR_GCS_TO_FC)
+    tx = s.Tx(ks, s.DIR_FC_TO_GCS)
     fr = [tx.seal(i, 1, 1, 7, b"x") for i in range(3)]
-    rx = s.Rx(ks, s.DIR_GCS_TO_FC)
+    rx = s.Rx(ks, s.DIR_FC_TO_GCS)
     rx.open(fr[2])
     rx.open(fr[1])                                       # inside the window: taken once
     expect_error(lambda: rx.open(fr[1]), "counter")      # a replay
@@ -89,31 +89,47 @@ def test_failures():
     expect_error(lambda: rx.open(fr[0]), "counter")
     # the window ends REPLAY_WINDOW below the highest counter
     W = s.REPLAY_WINDOW
-    tx = s.Tx(ks, s.DIR_GCS_TO_FC)
+    tx = s.Tx(ks, s.DIR_FC_TO_GCS)
     fw = [tx.seal(i & 0xFF, 1, 1, 7, b"x") for i in range(W + 2)]
-    rx = s.Rx(ks, s.DIR_GCS_TO_FC)
+    rx = s.Rx(ks, s.DIR_FC_TO_GCS)
     rx.open(fw[W + 1])
     rx.open(fw[2])                                       # W - 1 below: taken
     expect_error(lambda: rx.open(fw[1]), "counter")      # W below: outside
     expect_error(lambda: rx.open(fw[0]), "counter")
     # a jump of 64+ forgets the map
-    tx = s.Tx(ks, s.DIR_GCS_TO_FC)
+    tx = s.Tx(ks, s.DIR_FC_TO_GCS)
     fj = [tx.seal(i & 0xFF, 1, 1, 7, b"x") for i in range(70)]
-    rx = s.Rx(ks, s.DIR_GCS_TO_FC)
+    rx = s.Rx(ks, s.DIR_FC_TO_GCS)
     rx.open(fj[3])
     rx.open(fj[69])
     expect_error(lambda: rx.open(fj[3]), "counter")
     rx.open(fj[68])
     expect_error(lambda: rx.open(fj[68]), "counter")
     # a forged frame inside the window does not mark its counter as seen
-    tx = s.Tx(ks, s.DIR_GCS_TO_FC)
+    tx = s.Tx(ks, s.DIR_FC_TO_GCS)
     f3 = [tx.seal(i, 1, 1, 7, b"x") for i in range(3)]
-    rx = s.Rx(ks, s.DIR_GCS_TO_FC)
+    rx = s.Rx(ks, s.DIR_FC_TO_GCS)
     rx.open(f3[2])
     bad = bytearray(f3[1])
     bad[-1] ^= 1
     expect_error(lambda: rx.open(bytes(bad)), "tag")
     rx.open(f3[1])
+    # a jump of 17..63 keeps the map: W-1 below the new top is taken once
+    tx = s.Tx(ks, s.DIR_FC_TO_GCS)
+    fq = [tx.seal(i & 0xFF, 1, 1, 7, b"x") for i in range(40)]
+    rx = s.Rx(ks, s.DIR_FC_TO_GCS)
+    rx.open(fq[2])
+    rx.open(fq[30])
+    rx.open(fq[30 - (W - 1)])
+    expect_error(lambda: rx.open(fq[30 - (W - 1)]), "counter")
+    expect_error(lambda: rx.open(fq[30 - W]), "counter")
+    # GCS->FC (commands) is strict: a held-back frame is refused after a later one
+    tx = s.Tx(ks, s.DIR_GCS_TO_FC)
+    fc3 = [tx.seal(i, 1, 1, 7, b"x") for i in range(3)]
+    rx = s.Rx(ks, s.DIR_GCS_TO_FC)
+    rx.open(fc3[0])
+    rx.open(fc3[2])
+    expect_error(lambda: rx.open(fc3[1]), "counter")
     # counter max closes, never wraps
     tx.counter = s.COUNTER_MAX - 1
     tx.seal(0, 1, 1, 7, b"x")

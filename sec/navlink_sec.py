@@ -30,7 +30,8 @@ TAG_LEN = 16
 HEADER_LEN = 10
 TRAILER_LEN = 22
 COUNTER_MAX = (1 << 48) - 1
-REPLAY_WINDOW = 16          # spec 11.5: reorder window, in counters (at most 64)
+REPLAY_WINDOW = 16          # spec 11.5: reorder window of the FC->GCS direction (at most 64)
+REPLAY_WINDOW_CMD = 0       # the GCS->FC (command) direction is strict
 IFLAG_ENCRYPTED = 0x02
 DIR_FC_TO_GCS = 0
 DIR_GCS_TO_FC = 1
@@ -80,6 +81,7 @@ class Tx:
 class Rx:
     def __init__(self, key, direction):
         self.key, self.dir, self.last, self.have = key, direction, 0, False
+        self.window = REPLAY_WINDOW_CMD if direction == DIR_GCS_TO_FC else REPLAY_WINDOW
         self.seen = 0       # bit i: counter last - i was accepted (bit 0 is `last`)
 
     def open(self, frame):
@@ -95,7 +97,7 @@ class Rx:
         tag = frame[-TAG_LEN:]
         if self.have and counter <= self.last:
             d = self.last - counter
-            if d >= REPLAY_WINDOW or (self.seen >> d) & 1:
+            if d >= self.window or (self.seen >> d) & 1:
                 raise SecError("counter")
         aad = frame[1:10] + bytes([TAG_LEN, self.dir])
         try:

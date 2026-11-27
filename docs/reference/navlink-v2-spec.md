@@ -919,8 +919,11 @@ its counter would reach 2^48 − 1.
 
 A receiver MUST accept a secured frame only if its tag verifies **and** its
 `counter` has not been accepted before in that (session, direction) **and** is
-not more than `W` below the highest counter accepted so far (`W` = 16 in the
-reference code, at most 64; `W = 0` is the strict rule "greater than the last").
+not more than `W` below the highest counter accepted so far (`W` is at most 64;
+`W = 0` is the strict rule "greater than the last"). `W` is set per direction:
+**GCS→FC (commands) MUST use `W = 0`**, because a window lets a captured command
+be held back and delivered after a later one, which reorders commands; FC→GCS
+(telemetry) uses `W` = 16 in the reference code.
 The receiver keeps the highest accepted counter and a bitmap of the `W` counters
 below it, so a frame that UDP or a radio link delivered a few places late is
 still taken, once. The first frame of a session is accepted at any counter,
@@ -931,8 +934,8 @@ captured frame from a past session fails the tag because the session key differs
 or the bitmap, so a forged frame cannot advance either. A lost frame leaves a gap
 in the counter, which is fine. The window does not weaken nonce uniqueness (that is
 a sender property, §11.4). It does let an attacker who captured a frame that the
-receiver has NOT yet seen deliver it up to `W` counters late; for a command that
-is a delay of at most `W` frames, and a frame the receiver already accepted is
+receiver has NOT yet seen deliver it up to `W` counters late; that is why commands
+use `W = 0`, and for telemetry it is a delay of at most `W` frames, and a frame the receiver already accepted is
 never taken twice.
 
 ### 11.6 Order of operations

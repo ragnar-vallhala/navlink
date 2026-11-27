@@ -87,6 +87,7 @@ int navlink_sec_tx_init(navlink_sec_tx_t *tx, const uint8_t key[32],
 }
 
 _Static_assert(NAVLINK_SEC_REPLAY_WINDOW <= 64, "the window is a 64-bit map");
+_Static_assert(NAVLINK_SEC_REPLAY_WINDOW_CMD <= 64, "the window is a 64-bit map");
 
 int navlink_sec_rx_init(navlink_sec_rx_t *rx, const uint8_t key[32],
                         uint8_t dir) {
@@ -97,6 +98,9 @@ int navlink_sec_rx_init(navlink_sec_rx_t *rx, const uint8_t key[32],
   rx->seen = 0;
   rx->have = 0;
   rx->dir = dir;
+  rx->window = (uint8_t)(dir == NAVLINK_SEC_DIR_GCS_TO_FC
+                             ? NAVLINK_SEC_REPLAY_WINDOW_CMD
+                             : NAVLINK_SEC_REPLAY_WINDOW);
   return 0;
 }
 
@@ -200,7 +204,7 @@ int navlink_sec_open(navlink_sec_rx_t *rx, const uint8_t *frame, size_t len,
    * seen is new; one inside the window is taken once; the rest are replays. */
   if (rx->have && counter <= rx->last) {
     const uint64_t d = rx->last - counter;
-    if (d >= NAVLINK_SEC_REPLAY_WINDOW || ((rx->seen >> d) & 1u))
+    if (d >= rx->window || ((rx->seen >> d) & 1u))
       return NAVLINK_SEC_ERR_COUNTER;
   }
 
