@@ -584,6 +584,43 @@ int main(void) {
     assert(cap.m.fix_type == 3 && cap.m.sats == 14 && cap.m.nav_flags == 1);
   }
 
+  /* A full-width char field has no NUL on the wire: the accessors bound it
+   * (todo 71 item 1). */
+  {
+    uint8_t full[NAVLINK_WIRE_SIZE_STATUSTEXT];
+    memset(full, 0, sizeof full);
+    full[0] = 2;                       /* severity */
+    memset(full + 1, 'A', 50);         /* text: all 50 bytes used, no NUL */
+    navlink_statustext_wire_t w;
+    navlink_statustext_unpack(&w, full, sizeof full);
+    navlink_statustext_t t;
+    navlink_statustext_to_aligned(&t, &w);
+    assert(sizeof t.text == 50);
+    assert(navlink_str_len(t.text, sizeof t.text) == 50);
+    char out[64];
+    memset(out, 0xEE, sizeof out);
+    assert(NAVLINK_STR_COPY(out, t.text) == 50);
+    assert(strlen(out) == 50 && out[49] == 'A' && out[50] == '\0');
+    char small[8];
+    assert(NAVLINK_STR_COPY(small, t.text) == 7);      /* truncates, still terminated */
+    assert(strlen(small) == 7 && small[7] == '\0');
+    /* A short value stops at its NUL; an empty one copies nothing. */
+    memset(t.text, 0, sizeof t.text);
+    memcpy(t.text, "hi", 2);
+    assert(NAVLINK_STR_COPY(out, t.text) == 2 && strcmp(out, "hi") == 0);
+    memset(t.text, 0, sizeof t.text);
+    assert(NAVLINK_STR_COPY(out, t.text) == 0 && out[0] == '\0');
+    assert(navlink_str_copy(out, 0, t.text, sizeof t.text) == 0);
+  }
+  /* navlink_frame() never truncates a payload length into the 8-bit field. */
+  {
+    static uint8_t big[300], out[NAVLINK_MAX_FRAME + 64];
+    memset(big, 1, sizeof big);
+    assert(navlink_frame(out, 4, big, 256, 0, 1, 1) == 0);
+    assert(navlink_frame(out, 4, big, 300, 0, 1, 1) == 0);
+    assert(navlink_frame(out, 4, big, 255, 0, 1, 1) == NAVLINK_HEADER_LEN + 255 + 2);
+  }
+
   /* Emit parity table (msgid crc_extra wire_size). */
   for (size_t i = 0; i < NAVLINK_MSG_COUNT; i++)
     printf("TABLE %u %u %u\n", navlink_msg_table[i].msgid,
