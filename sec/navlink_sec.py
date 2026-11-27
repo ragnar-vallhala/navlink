@@ -30,6 +30,7 @@ TAG_LEN = 16
 HEADER_LEN = 10
 TRAILER_LEN = 22
 COUNTER_MAX = (1 << 48) - 1
+REPLAY_WINDOW = 16          # spec 11.5: reorder window, in counters (at most 64)
 IFLAG_ENCRYPTED = 0x02
 DIR_FC_TO_GCS = 0
 DIR_GCS_TO_FC = 1
@@ -79,6 +80,7 @@ class Tx:
 class Rx:
     def __init__(self, key, direction):
         self.key, self.dir, self.last, self.have = key, direction, 0, False
+        self.seen = 0       # bit i: counter last - i was accepted (bit 0 is `last`)
 
     def open(self, frame):
         if len(frame) < HEADER_LEN + TRAILER_LEN:
@@ -92,13 +94,22 @@ class Rx:
         counter = int.from_bytes(frame[HEADER_LEN + plen:HEADER_LEN + plen + 6], "little")
         tag = frame[-TAG_LEN:]
         if self.have and counter <= self.last:
-            raise SecError("counter")
+            d = self.last - counter
+            if d >= REPLAY_WINDOW or (self.seen >> d) & 1:
+                raise SecError("counter")
         aad = frame[1:10] + bytes([TAG_LEN, self.dir])
         try:
             pt = ChaCha20Poly1305(self.key).decrypt(
                 _nonce(counter, frame[4], frame[5], frame[6]), ct + tag, aad)
         except InvalidTag:
             raise SecError("tag")
-        self.last, self.have = counter, True
+        if not self.have:
+            self.seen, self.last = 1, counter
+        elif counter > self.last:
+            self.seen = ((self.seen << (counter - self.last)) | 1) & ((1 << 64) - 1)
+            self.last = counter
+        else:
+            self.seen |= 1 << (self.last - counter)
+        self.have = True
         return {"seq": frame[4], "sysid": frame[5], "compid": frame[6],
                 "msgid": frame[7] | frame[8] << 8 | frame[9] << 16}, pt

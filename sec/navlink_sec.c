@@ -86,12 +86,15 @@ int navlink_sec_tx_init(navlink_sec_tx_t *tx, const uint8_t key[32],
   return 0;
 }
 
+_Static_assert(NAVLINK_SEC_REPLAY_WINDOW <= 64, "the window is a 64-bit map");
+
 int navlink_sec_rx_init(navlink_sec_rx_t *rx, const uint8_t key[32],
                         uint8_t dir) {
   if (rx == NULL || key == NULL || dir > NAVLINK_SEC_DIR_GCS_TO_FC)
     return NAVLINK_SEC_ERR_ARG;
   memcpy(rx->key, key, NAVLINK_SEC_KEY_LEN);
   rx->last = 0;
+  rx->seen = 0;
   rx->have = 0;
   rx->dir = dir;
   return 0;
@@ -193,9 +196,13 @@ int navlink_sec_open(navlink_sec_rx_t *rx, const uint8_t *frame, size_t len,
   const uint8_t *ct = frame + NAVLINK_SEC_HEADER_LEN;
   const uint8_t *trailer = ct + plen;
   const uint64_t counter = get_le48(trailer);
-  /* Cheap rejection first; it never changes state. */
-  if (rx->have && counter <= rx->last)
-    return NAVLINK_SEC_ERR_COUNTER;
+  /* Cheap rejection first; it never changes state. A counter above the highest
+   * seen is new; one inside the window is taken once; the rest are replays. */
+  if (rx->have && counter <= rx->last) {
+    const uint64_t d = rx->last - counter;
+    if (d >= NAVLINK_SEC_REPLAY_WINDOW || ((rx->seen >> d) & 1u))
+      return NAVLINK_SEC_ERR_COUNTER;
+  }
 
   uint8_t nonce[12];
   uint8_t aad[AAD_LEN];
@@ -213,7 +220,17 @@ int navlink_sec_open(navlink_sec_rx_t *rx, const uint8_t *frame, size_t len,
     return NAVLINK_SEC_ERR_TAG;
   }
   /* Authentic: only now does the receive state move. */
-  rx->last = counter;
+  if (!rx->have) {
+    rx->seen = 1u;
+    rx->last = counter;
+  } else if (counter > rx->last) {
+    const uint64_t shift = counter - rx->last;
+    rx->seen = (shift >= 64u) ? 0u : (rx->seen << shift);
+    rx->seen |= 1u;
+    rx->last = counter;
+  } else {
+    rx->seen |= (uint64_t)1u << (rx->last - counter);
+  }
   rx->have = 1;
   hdr->seq = frame[4];
   hdr->sysid = frame[5];
