@@ -584,8 +584,7 @@ int main(void) {
     assert(cap.m.fix_type == 3 && cap.m.sats == 14 && cap.m.nav_flags == 1);
   }
 
-  /* A full-width char field has no NUL on the wire: the accessors bound it
-   * (todo 71 item 1). */
+  /* A full-width char field has no NUL on the wire: the accessors bound it. */
   {
     uint8_t full[NAVLINK_WIRE_SIZE_STATUSTEXT];
     memset(full, 0, sizeof full);
