@@ -97,37 +97,86 @@ void navlink_fc_wipe(navlink_fc_t *fc) {
 }
 
 void navlink_fc_tick(navlink_fc_t *fc, uint32_t now_ms) {
-  if (fc != NULL && fc->pending.valid &&
-      (uint32_t)(now_ms - fc->pending_since_ms) >= NAVLINK_SESS_PENDING_MS)
-    drop(&fc->pending);
+  if (fc == NULL)
+    return;
+  for (unsigned i = 0; i < NAVLINK_SESS_PENDING_SLOTS; ++i)
+    if (fc->pending[i].s.valid &&
+        (uint32_t)(now_ms - fc->pending[i].since_ms) >= NAVLINK_SESS_PENDING_MS)
+      drop(&fc->pending[i].s);
+}
+
+/* The HELLO budget as it stands at now_ms (refilled, capped), not yet charged. */
+static uint32_t budget_now(navlink_fc_t *fc, uint32_t now_ms) {
+  const uint32_t cap = NAVLINK_SESS_HELLO_BURST * NAVLINK_SESS_HELLO_MIN_GAP_MS;
+  if (!fc->budget_init) {
+    fc->budget_ms = cap;
+    fc->budget_init = 1;
+  } else {
+    const uint32_t add = (uint32_t)(now_ms - fc->budget_at_ms);
+    fc->budget_ms = (add >= cap - fc->budget_ms) ? cap : fc->budget_ms + add;
+  }
+  fc->budget_at_ms = now_ms;
+  return fc->budget_ms;
 }
 
 int navlink_fc_hello(navlink_fc_t *fc, uint32_t now_ms,
                      const uint8_t gcs_nonce[16], uint8_t *reply) {
+  return navlink_fc_hello_peer(fc, now_ms, 0u, gcs_nonce, reply);
+}
+
+int navlink_fc_hello_peer(navlink_fc_t *fc, uint32_t now_ms, uint32_t peer,
+                          const uint8_t gcs_nonce[16], uint8_t *reply) {
   if (fc == NULL || gcs_nonce == NULL || reply == NULL)
     return NAVLINK_SEC_ERR_ARG;
   if (fc->closed || fc->hs_ctr == 0xFFFFFFFFu) {
     fc->closed = 1;
     return NAVLINK_SEC_ERR_CLOSED;
   }
-  if (fc->have_hello &&
-      (uint32_t)(now_ms - fc->last_hello_ms) < NAVLINK_SESS_HELLO_MIN_GAP_MS)
+  navlink_fc_tick(fc, now_ms);
+  /* The slot this HELLO takes: the sender's own (a known peer), else a free
+   * one, else the oldest. */
+  int slot = -1;
+  if (peer != 0u)
+    for (int i = 0; i < NAVLINK_SESS_PENDING_SLOTS; ++i)
+      if (fc->pending[i].s.valid && fc->pending[i].peer == peer) {
+        if ((uint32_t)(now_ms - fc->pending[i].last_ms) <
+            NAVLINK_SESS_HELLO_MIN_GAP_MS)
+          return NAVLINK_SESS_ERR_RATE; /* this sender, inside its own 1/s */
+        slot = i;
+      }
+  if (budget_now(fc, now_ms) < NAVLINK_SESS_HELLO_MIN_GAP_MS)
     return NAVLINK_SESS_ERR_RATE;
   for (unsigned i = 0; i < fc->nonce_count; ++i)
     if (memcmp(fc->nonces[i], gcs_nonce, 16) == 0)
       return NAVLINK_SESS_ERR_REPEAT;
+  if (slot < 0) {
+    uint32_t oldest = 0;
+    for (int i = 0; i < NAVLINK_SESS_PENDING_SLOTS; ++i) {
+      if (!fc->pending[i].s.valid) {
+        slot = i;
+        break;
+      }
+      const uint32_t age = (uint32_t)(now_ms - fc->pending[i].since_ms);
+      if (slot < 0 || age > oldest) {
+        slot = i;
+        oldest = age;
+      }
+    }
+  }
 
+  fc->budget_ms -= NAVLINK_SESS_HELLO_MIN_GAP_MS;
   fc->hs_ctr++;
-  fc->last_hello_ms = now_ms;
-  fc->have_hello = 1;
   memcpy(fc->nonces[fc->nonce_next], gcs_nonce, 16);
   fc->nonce_next = (uint8_t)((fc->nonce_next + 1u) % NAVLINK_SESS_NONCE_RING);
   if (fc->nonce_count < NAVLINK_SESS_NONCE_RING)
     fc->nonce_count++;
 
-  make_session(&fc->pending, 1, fc->k, gcs_nonce, fc->boot_ctr, fc->hs_ctr,
-               fc->uid);
-  fc->pending_since_ms = now_ms;
+  navlink_pending_t *pd = &fc->pending[slot];
+  drop(&pd->s);
+  make_session(&pd->s, 1, fc->k, gcs_nonce, fc->boot_ctr, fc->hs_ctr, fc->uid);
+  pd->since_ms = now_ms;
+  pd->last_ms = now_ms;
+  pd->peer = peer;
 
   memcpy(reply, gcs_nonce, 16);
   put_le32(reply + 16, fc->boot_ctr);
@@ -148,13 +197,18 @@ int navlink_fc_open(navlink_fc_t *fc, uint32_t now_ms, const uint8_t *frame,
     if (r >= 0)
       return r;
   }
-  if (fc->pending.valid) {
-    const int p = navlink_sec_open(&fc->pending.rx, frame, len, hdr, payload_out);
+  /* Each pending session gets a try; a frame verifies under at most one. */
+  for (unsigned i = 0; i < NAVLINK_SESS_PENDING_SLOTS; ++i) {
+    if (!fc->pending[i].s.valid)
+      continue;
+    const int p =
+        navlink_sec_open(&fc->pending[i].s.rx, frame, len, hdr, payload_out);
     if (p >= 0) {
-      /* proof the sender holds K: the pending session takes over */
+      /* proof the sender holds K: that pending session takes over; the others
+       * (other senders' HELLOs) stay until they are confirmed or expire */
       drop(&fc->live);
-      fc->live = fc->pending;
-      drop(&fc->pending);
+      fc->live = fc->pending[i].s;
+      drop(&fc->pending[i].s);
       return p;
     }
     if (r == NAVLINK_SESS_ERR_NOSESSION)

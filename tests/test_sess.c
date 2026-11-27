@@ -138,10 +138,10 @@ static void test_hello_during_live_session(void) {
   /* garbage and a frame forged without K do not promote the pending session */
   memset(f, 0x55, 40);
   assert(navlink_fc_open(&fc, 2200, f, 40, &h, out) < 0);
-  assert(fc.pending.valid);
+  assert(fc.pending[0].s.valid);
   /* it expires after 5 s, live untouched */
   navlink_fc_tick(&fc, 2000 + NAVLINK_SESS_PENDING_MS);
-  assert(!fc.pending.valid && fc.live.valid);
+  assert(!fc.pending[0].s.valid && fc.live.valid);
   int l = navlink_gcs_seal(&g, NOW, f, sizeof f, E, &H, PL);
   assert(navlink_fc_open(&fc, 8000, f, (size_t)l, &h, out) == 4);
   (void)hello;
@@ -177,32 +177,103 @@ static void test_promotion_and_old_session(void) {
 
 static void test_rate_and_repeat(void) {
   navlink_fc_t fc;
-  uint8_t reply[52], a[16], b[16], c[16];
+  uint8_t reply[52], n[16];
   assert(navlink_fc_init(&fc, K, UID, 7) == 0);
-  nonce(a, 1);
-  nonce(b, 2);
-  nonce(c, 3);
-  assert(navlink_fc_hello(&fc, 5000, a, reply) == 52);
-  /* inside 1 s: refused, nothing changes (hs_ctr, pending) */
+  /* a burst of NAVLINK_SESS_HELLO_BURST HELLOs is taken, the next one is not */
+  for (uint8_t i = 1; i <= NAVLINK_SESS_HELLO_BURST; i++) {
+    nonce(n, i);
+    assert(navlink_fc_hello(&fc, 5000, n, reply) == 52);
+  }
+  nonce(n, 9);
   const uint32_t hs = fc.hs_ctr;
-  assert(navlink_fc_hello(&fc, 5999, b, reply) == NAVLINK_SESS_ERR_RATE);
-  assert(fc.hs_ctr == hs);
-  assert(navlink_fc_hello(&fc, 6000, b, reply) == 52);
-  /* the same nonce again, after the gap: dropped */
-  assert(navlink_fc_hello(&fc, 8000, a, reply) == NAVLINK_SESS_ERR_REPEAT);
-  assert(navlink_fc_hello(&fc, 8000, b, reply) == NAVLINK_SESS_ERR_REPEAT);
-  assert(navlink_fc_hello(&fc, 8000, c, reply) == 52);
-  /* a repeat does not use up the rate budget: a new nonce right after works only
-   * after the gap from the last ACCEPTED one */
-  nonce(a, 4);
-  assert(navlink_fc_hello(&fc, 8500, a, reply) == NAVLINK_SESS_ERR_RATE);
+  assert(navlink_fc_hello(&fc, 5000, n, reply) == NAVLINK_SESS_ERR_RATE);
+  assert(navlink_fc_hello(&fc, 5999, n, reply) == NAVLINK_SESS_ERR_RATE);
+  assert(fc.hs_ctr == hs); /* refused, nothing changed */
+  /* the budget refills one HELLO per second */
+  assert(navlink_fc_hello(&fc, 6000, n, reply) == 52);
+  /* the same nonce again, after the refill: dropped, and no budget is spent */
+  assert(navlink_fc_hello(&fc, 7000, n, reply) == NAVLINK_SESS_ERR_REPEAT);
+  nonce(n, 10);
+  assert(navlink_fc_hello(&fc, 7000, n, reply) == 52);
+  nonce(n, 11);
+  assert(navlink_fc_hello(&fc, 7500, n, reply) == NAVLINK_SESS_ERR_RATE);
   /* a counter that wraps the 32-bit clock still measures the gap */
   navlink_fc_t f2;
   assert(navlink_fc_init(&f2, K, UID, 7) == 0);
-  assert(navlink_fc_hello(&f2, 0xFFFFFF00u, a, reply) == 52);
-  nonce(b, 9);
-  assert(navlink_fc_hello(&f2, 0xFFFFFF10u, b, reply) == NAVLINK_SESS_ERR_RATE);
-  assert(navlink_fc_hello(&f2, 0xFFFFFF00u + 1000u, b, reply) == 52);
+  for (uint8_t i = 1; i <= NAVLINK_SESS_HELLO_BURST; i++) {
+    nonce(n, 20 + i);
+    assert(navlink_fc_hello(&f2, 0xFFFFFF00u, n, reply) == 52);
+  }
+  nonce(n, 30);
+  assert(navlink_fc_hello(&f2, 0xFFFFFF10u, n, reply) == NAVLINK_SESS_ERR_RATE);
+  assert(navlink_fc_hello(&f2, 0xFFFFFF00u + 1000u, n, reply) == 52);
+}
+
+/* Todo 71 (4): a keyless sender sending a HELLO per second, one landing between the
+ * real HELLO and the real first frame, must not stop the connect. With one pending
+ * slot and a fixed 1 s gap the real HELLO was refused or its slot was replaced. */
+static void test_flood_does_not_starve_connect(void) {
+  navlink_fc_t fc;
+  navlink_gcs_t g;
+  uint8_t atk[16], hello[16], reply[52], f[300], out[255], n[16];
+  navlink_sec_hdr_t h;
+  assert(navlink_fc_init(&fc, K, UID, 7) == 0);
+  assert(navlink_gcs_init(&g, K) == 0);
+  for (uint32_t t = 0; t < 4000; t += 1000) {
+    nonce(atk, (uint8_t)(0x40 + t / 1000));
+    assert(navlink_fc_hello(&fc, t, atk, reply) == 52);
+  }
+  nonce(n, 1);
+  assert(navlink_gcs_hello(&g, n, NULL, hello) == 16);
+  assert(navlink_fc_hello(&fc, 3500, hello, reply) == 52); /* inside the second */
+  assert(navlink_gcs_reply(&g, reply, 52, &INFO) == 0);
+  /* more attacker HELLOs before the real first frame lands: they take other
+   * slots, the real session is still pending, and the budget runs out for them */
+  nonce(atk, 0x60);
+  assert(navlink_fc_hello(&fc, 3600, atk, reply) == 52);
+  nonce(atk, 0x61);
+  assert(navlink_fc_hello(&fc, 3601, atk, reply) == 52);
+  nonce(atk, 0x62);
+  assert(navlink_fc_hello(&fc, 3602, atk, reply) == NAVLINK_SESS_ERR_RATE);
+  int l = navlink_gcs_seal(&g, NOW, f, sizeof f, E, &H, PL);
+  assert(l > 0);
+  assert(navlink_fc_open(&fc, 3700, f, (size_t)l, &h, out) == 4);
+  assert(fc.live.valid);
+}
+
+/* With a peer id, one sender holds one slot and has its own 1/s limit. */
+static void test_peer_slots(void) {
+  navlink_fc_t fc;
+  uint8_t n[16], reply[52];
+  assert(navlink_fc_init(&fc, K, UID, 7) == 0);
+  nonce(n, 1);
+  assert(navlink_fc_hello_peer(&fc, 0, 77, n, reply) == 52);
+  nonce(n, 2);
+  assert(navlink_fc_hello_peer(&fc, 500, 77, n, reply) == NAVLINK_SESS_ERR_RATE);
+  assert(navlink_fc_hello_peer(&fc, 1000, 77, n, reply) == 52);
+  int used = 0;
+  for (int i = 0; i < NAVLINK_SESS_PENDING_SLOTS; i++)
+    used += fc.pending[i].s.valid;
+  assert(used == 1); /* the second HELLO replaced the first, same peer */
+  /* other peers fill the rest; one more evicts the oldest, never a newer one */
+  for (uint32_t p = 1; p <= 3; p++) {
+    nonce(n, (uint8_t)(10 + p));
+    assert(navlink_fc_hello_peer(&fc, 1000, p, n, reply) == 52);
+  }
+  used = 0;
+  for (int i = 0; i < NAVLINK_SESS_PENDING_SLOTS; i++)
+    used += fc.pending[i].s.valid;
+  assert(used == NAVLINK_SESS_PENDING_SLOTS);
+  nonce(n, 50);
+  assert(navlink_fc_hello_peer(&fc, 2000, 99, n, reply) == 52);
+  int p77 = 0;
+  for (int i = 0; i < NAVLINK_SESS_PENDING_SLOTS; i++)
+    p77 += fc.pending[i].s.valid && fc.pending[i].peer == 77;
+  assert(p77 == 0); /* all four were the same age; the first slot (77) went */
+  /* a pending session expires on its own */
+  navlink_fc_tick(&fc, 2000 + NAVLINK_SESS_PENDING_MS);
+  for (int i = 0; i < NAVLINK_SESS_PENDING_SLOTS; i++)
+    assert(!fc.pending[i].s.valid);
 }
 
 static void test_ring_forgets_old(void) {
@@ -231,11 +302,11 @@ static void test_same_hello_different_keys(void) {
   assert(navlink_fc_init(&fc, K, UID, 7) == 0);
   assert(navlink_fc_hello(&fc, 0, n, r1) == 52);
   uint8_t key1[32];
-  memcpy(key1, fc.pending.rx.key, 32);
+  memcpy(key1, fc.pending[0].s.rx.key, 32);
   /* a second boot with the same HELLO: different boot counter, different key */
   assert(navlink_fc_init(&fc2, K, UID, 8) == 0);
   assert(navlink_fc_hello(&fc2, 0, n, r2) == 52);
-  assert(memcmp(key1, fc2.pending.rx.key, 32) != 0);
+  assert(memcmp(key1, fc2.pending[0].s.rx.key, 32) != 0);
   assert(memcmp(r1 + 16, r2 + 16, 4) != 0);
   /* in one boot: the ring drops the repeat, so the key cannot be reused; if the
    * ring had forgotten it, hs_ctr alone would still change the key (test_sec) */
@@ -298,7 +369,7 @@ static void test_wrong_key_gcs_frame(void) {
   assert(navlink_gcs_reply(&g, reply, 52, &INFO) == NAVLINK_SESS_ERR_REPLY);
   assert(navlink_gcs_seal(&g, NOW, f, sizeof f, E, &H, PL) == NAVLINK_SESS_ERR_NOSESSION);
   assert(navlink_fc_open(&fc, 10, reply, 52, &h, out) < 0);
-  assert(fc.pending.valid && !fc.live.valid);
+  assert(fc.pending[0].s.valid && !fc.live.valid);
 }
 
 static void test_exhaustion(void) {
@@ -349,7 +420,7 @@ static void test_lost_first_frame_and_recovery(void) {
   assert(navlink_gcs_seal(&g, 0, f1, sizeof f1, E, &H, PL) > 0); /* lost */
   int l2 = navlink_gcs_seal(&g, 1000, f2, sizeof f2, E, &H, PL);
   assert(navlink_fc_open(&fc, 1100, f2, (size_t)l2, &h, out) == 4);
-  assert(fc.live.valid && !fc.pending.valid);
+  assert(fc.live.valid && !fc.pending[0].s.valid);
   int l = navlink_fc_seal(&fc, f3, sizeof f3, E, &H, PL);
   assert(navlink_gcs_open(&g, f3, (size_t)l, &h, out) == 4);
   assert(!navlink_gcs_needs_hello(&g, 60000)); /* a vehicle frame verified */
@@ -363,7 +434,7 @@ static void test_lost_first_frame_and_recovery(void) {
   for (uint32_t t = 10000; t <= 15000; t += 1000)
     assert(navlink_gcs_seal(&g, t, f1, sizeof f1, E, &H, PL) > 0); /* all lost */
   assert(navlink_fc_open(&fc, 16000, f1, 36, &h, out) < 0);
-  assert(!fc.pending.valid && fc.live.valid);
+  assert(!fc.pending[0].s.valid && fc.live.valid);
   l = navlink_fc_seal(&fc, f3, sizeof f3, E, &H, PL); /* old keys: unreadable */
   assert(navlink_gcs_open(&g, f3, (size_t)l, &h, out) < 0);
   assert(!navlink_gcs_needs_hello(&g, 10000 + NAVLINK_SESS_GCS_RESYNC_MS - 1));
@@ -416,6 +487,8 @@ int main(void) {
   test_hello_during_live_session();
   test_promotion_and_old_session();
   test_rate_and_repeat();
+  test_flood_does_not_starve_connect();
+  test_peer_slots();
   test_ring_forgets_old();
   test_same_hello_different_keys();
   test_reply_checks();

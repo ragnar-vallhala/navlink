@@ -77,7 +77,7 @@ def test_hello_during_live():
         pass
     assert fc.pending and fc.live
     fc.tick(2.0 + hs.PENDING_S)
-    assert fc.pending is None and fc.live
+    assert not fc.pending and fc.live
     assert fc.open(8.0, g.seal(NOW, 1, 1, 1, 7, PL))[1] == PL
 
 
@@ -98,15 +98,46 @@ def test_promotion():
 
 def test_rate_repeat_ring():
     fc = hs.Fc(k, uid, 7)
-    fc.hello(5.0, nonce(1))
-    err(lambda: fc.hello(5.999, nonce(2)), "rate")
-    fc.hello(6.0, nonce(2))
-    err(lambda: fc.hello(8.0, nonce(1)), "repeat")
-    t = 8.0
-    for v in range(3, 3 + hs.NONCE_RING):
+    for v in range(1, 1 + hs.HELLO_BURST):               # a burst is taken
+        fc.hello(5.0, nonce(v))
+    err(lambda: fc.hello(5.0, nonce(9)), "rate")
+    err(lambda: fc.hello(5.999, nonce(9)), "rate")
+    fc.hello(6.0, nonce(9))                              # one per second refills
+    err(lambda: fc.hello(7.0, nonce(9)), "repeat")       # and a repeat costs nothing
+    fc.hello(7.0, nonce(10))
+    t = 7.0
+    for v in range(11, 11 + hs.NONCE_RING):
         t += 1.0
         fc.hello(t, nonce(v))
-    fc.hello(t + 1.0, nonce(1))  # it has left the ring
+    fc.hello(t + 1.0, nonce(1))                          # it has left the ring
+
+
+def test_flood_does_not_starve_connect():
+    """Todo 71 (4): a keyless sender's HELLOs, one inside the real HELLO's second and
+    some before the real first frame, do not stop the connect."""
+    fc, g = hs.Fc(k, uid, 7), hs.Gcs(k)
+    for i in range(4):
+        fc.hello(float(i), nonce(0x40 + i))
+    g.take_reply(fc.hello(3.5, g.hello(nonce(1))))
+    fc.hello(3.6, nonce(0x60))
+    fc.hello(3.601, nonce(0x61))
+    err(lambda: fc.hello(3.602, nonce(0x62)), "rate")
+    assert fc.open(3.7, g.seal(NOW, 1, 1, 1, 7, PL))[1] == PL and fc.live
+
+
+def test_peer_slots():
+    fc = hs.Fc(k, uid, 7)
+    fc.hello(0.0, nonce(1), peer=77)
+    err(lambda: fc.hello(0.5, nonce(2), peer=77), "rate")   # its own 1/s
+    fc.hello(1.0, nonce(2), peer=77)
+    assert len(fc.pending) == 1                             # replaced its own slot
+    for p in (1, 2, 3):
+        fc.hello(1.0, nonce(10 + p), peer=p)
+    assert len(fc.pending) == hs.PENDING_SLOTS
+    fc.hello(2.0, nonce(50), peer=99)                       # evicts the oldest
+    assert sorted(p.peer for p in fc.pending) == [1, 2, 3, 99]
+    fc.tick(2.0 + hs.PENDING_S)
+    assert not fc.pending
 
 
 def test_reply_checks():
@@ -157,7 +188,7 @@ def test_lost_first_frame_and_recovery():
         raise AssertionError("expired pending accepted")
     except sec.SecError:
         pass
-    assert fc.pending is None and fc.live
+    assert not fc.pending and fc.live
     try:
         g.open(fc.seal(1, 1, 1, 7, PL))
         raise AssertionError("old keys readable")
