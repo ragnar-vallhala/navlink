@@ -103,6 +103,13 @@ size_t navlink_foo_encode(uint8_t *out, const navlink_foo_t *msg,        /* alig
                           uint8_t seq, uint8_t sysid, uint8_t compid);
 size_t navlink_frame(uint8_t *out, uint32_t msgid, const uint8_t *payload, size_t len,
                      uint8_t seq, uint8_t sysid, uint8_t compid);        /* low-level: pre-packed payload */
+/* navlink_frame() returns 0 (and writes nothing) for len > 255: the length byte is 8 bits. */
+
+/* Char fields are NUL-padded on the wire, NOT terminated: a full-width STATUSTEXT.text has no NUL.
+ * Read one as a C string through the accessors, never with %s / strlen on the field: */
+size_t navlink_str_len(const char *field, size_t cap);                 /* bounded strlen */
+size_t navlink_str_copy(char *dst, size_t dstsz, const char *field, size_t cap);  /* always terminates */
+/* NAVLINK_STR_COPY(dst, field) = navlink_str_copy(dst, sizeof dst, field, sizeof field) */
 
 typedef struct { uint32_t msgid; uint8_t seq, sysid, compid, incompat_flags; } navlink_frame_hdr_t;
 typedef struct navlink_handlers {                /* populate the slots you want */
