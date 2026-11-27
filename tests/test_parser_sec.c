@@ -292,6 +292,57 @@ static void test_accept_unsecured(void) {
   CHECK(g_accept_calls == 2);
 }
 
+static int g_text, g_hb;
+static void on_hb(void *ctx, const navlink_frame_hdr_t *hdr,
+                  const navlink_heartbeat_t *msg) {
+  (void)ctx;
+  (void)hdr;
+  (void)msg;
+  g_hb++;
+}
+static void on_text(void *ctx, const navlink_frame_hdr_t *hdr,
+                    const navlink_statustext_t *msg) {
+  (void)ctx;
+  (void)hdr;
+  (void)msg;
+  g_text++;
+}
+
+/* Spec 11.8: with secure_open set and no accept_unsecured, the parser is strict by
+ * default: only HEARTBEAT, CAPABILITIES and the handshake pass unsecured. */
+static void test_strict_by_default(void) {
+  uint8_t t[NAVLINK_MAX_FRAME], hb[NAVLINK_MAX_FRAME], hs[NAVLINK_MAX_FRAME];
+  navlink_statustext_t st;
+  memset(&st, 0, sizeof st);
+  memcpy(st.text, "x", 1);
+  size_t tn = navlink_statustext_encode(t, &st, 0, 1, 1);
+  navlink_heartbeat_t h0;
+  memset(&h0, 0, sizeof h0);
+  size_t hn = navlink_heartbeat_encode(hb, &h0, 0, 1, 1);
+  size_t m = plain(7, hs); /* an unsecured HS_HELLO */
+
+  reset(1);
+  H.on_statustext = on_text;
+  H.on_heartbeat = on_hb;
+  g_text = g_hb = 0;
+  navlink_parser_push(&P, &H, t, tn);
+  CHECK(g_text == 0); /* keyed, no policy hook: a plaintext STATUSTEXT is dropped */
+  navlink_parser_push(&P, &H, hs, m);
+  CHECK(g_hello == 1); /* the handshake still passes */
+  navlink_parser_push(&P, &H, hb, hn);
+  CHECK(g_hb == 1); /* so does a HEARTBEAT */
+  /* An explicit accept-all hook opts out. */
+  H.accept_unsecured = accept_hook;
+  g_accept_ret = 1;
+  navlink_parser_push(&P, &H, t, tn);
+  CHECK(g_text == 1);
+  /* No secure_open: nothing is keyed, so nothing is refused (unchanged). */
+  reset(0);
+  H.on_statustext = on_text;
+  navlink_parser_push(&P, &H, t, tn);
+  CHECK(g_text == 2);
+}
+
 static void test_real_aead(void) {
   navlink_sec_tx_t tx;
   uint8_t f[NAVLINK_MAX_FRAME], t[NAVLINK_MAX_FRAME];
@@ -332,6 +383,7 @@ int main(void) {
   test_bounds();
   test_unknown_msgid_consumed();
   test_accept_unsecured();
+  test_strict_by_default();
   test_real_aead();
   puts(g_bad ? "parser_sec: FAIL" : "parser_sec: ok");
   return g_bad;
