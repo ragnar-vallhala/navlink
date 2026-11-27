@@ -146,6 +146,28 @@ class SecureParser(unittest.TestCase):
         r.p.push(secured(s.Tx(KEY, GCS_TO_FC), 8))   # not subject to it
         self.assertEqual(r.seen, [7, 8])
 
+    def test_strict_by_default(self):
+        """Spec 11.8: keyed (secure_open set) and no accept_unsecured hook: only
+        HEARTBEAT, CAPABILITIES and the handshake are taken unsecured."""
+        got = []
+        h = nl.Handlers(on_statustext=lambda f, m: got.append("text"),
+                        on_heartbeat=lambda f, m: got.append("hb"),
+                        on_hs_hello=lambda f, m: got.append("hello"))
+        h.secure_open = lambda frame: None
+        p = nl.Parser(h)
+        p.push(nl.encode(nl.Statustext(severity=1, text=b"x")))
+        self.assertEqual(got, [])                            # dropped
+        p.push(nl.encode(hello(7)))
+        p.push(nl.encode(nl.Heartbeat()))
+        self.assertEqual(got, ["hello", "hb"])
+        h.accept_unsecured = lambda f: True                  # explicit opt out
+        p.push(nl.encode(nl.Statustext(severity=1, text=b"x")))
+        self.assertEqual(got, ["hello", "hb", "text"])
+        got.clear()                                          # not keyed: unchanged
+        h2 = nl.Handlers(on_statustext=lambda f, m: got.append("text"))
+        nl.Parser(h2).push(nl.encode(nl.Statustext(severity=1, text=b"x")))
+        self.assertEqual(got, ["text"])
+
     def test_real_aead_failures(self):
         tx = s.Tx(KEY, GCS_TO_FC)
         r = Rig()
