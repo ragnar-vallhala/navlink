@@ -1065,7 +1065,8 @@ before dispatch and may drop it (strict mode, §11.8); secured frames are not
 subject to it.
 With `secure_open` set and `accept_unsecured` unset the reference parser is strict
 by default: only `HEARTBEAT`, `CAPABILITIES`, `HS_HELLO` and `HS_REPLY` are taken
-unsecured (the messages §11.8 allows), and every other unsecured frame is
+unsecured (this library's default policy; §11.8 only says a receiver MAY accept
+discovery and handshake messages unsecured), and every other unsecured frame is
 consumed. A caller that needs another policy sets `accept_unsecured`; one that
 returns true for every frame restores the old accept-all behaviour explicitly.
 With `secure_open` unset nothing is keyed and nothing is refused.
