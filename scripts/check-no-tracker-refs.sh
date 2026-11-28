@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fail if added diff lines or commit messages in BASE..HEAD refer to tracker
-# numbers such as "todo #12", "room #3", "stack #7" or "ashu #9". Those numbers
+# numbers such as "todo #12", "Todo 71", "room #3", "stack #7" or "ashu #9". Those numbers
 # mean nothing outside the tracker; write the reason itself instead. Links to
 # this repo's own GitHub issues and PRs ("#12" alone) are fine.
 #
@@ -8,7 +8,9 @@
 set -eu
 BASE=${1:?usage: $0 BASE [HEAD]}
 HEAD_REF=${2:-HEAD}
-PAT='(todo|room|stack|ashu) #[0-9]+'
+# "todo" is also caught without the '#' ("Todo 71 (4)" slipped past the old pattern);
+# the others need the '#', since "room 3" or "stack 16" are ordinary words and numbers.
+PAT='(todo #?[0-9]+|(room|stack|ashu) #[0-9]+)'
 SELF=scripts/check-no-tracker-refs.sh
 RC=0
 
@@ -30,6 +32,13 @@ for C in $(git rev-list --no-merges "$BASE..$HEAD_REF"); do
         RC=1
     fi
 done
+
+# The pull request description, when the caller passes it in PR_BODY.
+if [ -n "${PR_BODY:-}" ] && printf '%s\n' "$PR_BODY" | grep -iEq "$PAT"; then
+    echo "::error::the pull request description mentions a tracker number:"
+    printf '%s\n' "$PR_BODY" | grep -iE "$PAT"
+    RC=1
+fi
 
 [ "$RC" -eq 0 ] && echo "no tracker numbers in added lines or commit messages"
 exit "$RC"
