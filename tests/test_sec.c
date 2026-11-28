@@ -157,17 +157,98 @@ static void test_failures(void) {
   navlink_sec_rx_init(&other, rx.key, NAVLINK_SEC_DIR_FC_TO_GCS);
   assert(navlink_sec_open(&other, f, (size_t)n, &h, out) == NAVLINK_SEC_ERR_TAG);
 
-  /* reorder: 0,1,2 sent; 2 then 1 arrive: 2 accepted, 1 refused */
-  setup(&tx, &rx, NAVLINK_SEC_DIR_GCS_TO_FC);
+  /* The FC->GCS (telemetry) direction has a reorder window; the GCS->FC (command)
+   * direction is strict (checked below).
+   * reorder: 0,1,2 sent; 2 then 1 then 0 arrive. Inside the window each is
+   * taken ONCE; a second copy is a replay. */
+  setup(&tx, &rx, NAVLINK_SEC_DIR_FC_TO_GCS);
   uint8_t fr[3][300];
   int ln[3];
   for (int i = 0; i < 3; i++)
     ln[i] = navlink_sec_seal(&tx, fr[i], 300, NAVLINK_SEC_IFLAG_ENCRYPTED, &H, PL);
   assert(navlink_sec_open(&rx, fr[2], (size_t)ln[2], &h, out) == 13);
+  assert(navlink_sec_open(&rx, fr[1], (size_t)ln[1], &h, out) == 13);
   assert(navlink_sec_open(&rx, fr[1], (size_t)ln[1], &h, out) ==
-         NAVLINK_SEC_ERR_COUNTER);
+         NAVLINK_SEC_ERR_COUNTER); /* replay of one just taken */
+  assert(navlink_sec_open(&rx, fr[2], (size_t)ln[2], &h, out) ==
+         NAVLINK_SEC_ERR_COUNTER); /* and of the highest */
+  assert(navlink_sec_open(&rx, fr[0], (size_t)ln[0], &h, out) == 13);
   assert(navlink_sec_open(&rx, fr[0], (size_t)ln[0], &h, out) ==
          NAVLINK_SEC_ERR_COUNTER);
+
+  /* the window ends: with W frames sent, the oldest is outside it once the
+   * newest is taken, and the one just inside is taken */
+  {
+    enum { W = NAVLINK_SEC_REPLAY_WINDOW };
+    static uint8_t wf[W + 2][300];
+    int wl[W + 2];
+    setup(&tx, &rx, NAVLINK_SEC_DIR_FC_TO_GCS);
+    for (int i = 0; i < W + 2; i++)
+      wl[i] = navlink_sec_seal(&tx, wf[i], 300, NAVLINK_SEC_IFLAG_ENCRYPTED, &H, PL);
+    assert(navlink_sec_open(&rx, wf[W + 1], (size_t)wl[W + 1], &h, out) == 13);
+    /* counter W+1 is the highest: W+1-W = 1 is exactly W - 1 below -> taken */
+    assert(navlink_sec_open(&rx, wf[2], (size_t)wl[2], &h, out) == 13);
+    assert(navlink_sec_open(&rx, wf[1], (size_t)wl[1], &h, out) ==
+           NAVLINK_SEC_ERR_COUNTER); /* W below: outside */
+    assert(navlink_sec_open(&rx, wf[0], (size_t)wl[0], &h, out) ==
+           NAVLINK_SEC_ERR_COUNTER);
+  }
+  /* a jump of 64 or more forgets the map: the old frames are outside anyway */
+  {
+    static uint8_t jf[70][300];
+    int jl[70];
+    setup(&tx, &rx, NAVLINK_SEC_DIR_FC_TO_GCS);
+    for (int i = 0; i < 70; i++)
+      jl[i] = navlink_sec_seal(&tx, jf[i], 300, NAVLINK_SEC_IFLAG_ENCRYPTED, &H, PL);
+    assert(navlink_sec_open(&rx, jf[3], (size_t)jl[3], &h, out) == 13);
+    assert(navlink_sec_open(&rx, jf[69], (size_t)jl[69], &h, out) == 13);
+    assert(navlink_sec_open(&rx, jf[3], (size_t)jl[3], &h, out) ==
+           NAVLINK_SEC_ERR_COUNTER);
+    assert(navlink_sec_open(&rx, jf[68], (size_t)jl[68], &h, out) == 13);
+    assert(navlink_sec_open(&rx, jf[68], (size_t)jl[68], &h, out) ==
+           NAVLINK_SEC_ERR_COUNTER);
+  }
+  /* a forged frame inside the window does not mark its counter as seen */
+  setup(&tx, &rx, NAVLINK_SEC_DIR_FC_TO_GCS);
+  for (int i = 0; i < 3; i++)
+    ln[i] = navlink_sec_seal(&tx, fr[i], 300, NAVLINK_SEC_IFLAG_ENCRYPTED, &H, PL);
+  assert(navlink_sec_open(&rx, fr[2], (size_t)ln[2], &h, out) == 13);
+  uint8_t forged[300];
+  memcpy(forged, fr[1], (size_t)ln[1]);
+  forged[ln[1] - 1] ^= 1;
+  assert(navlink_sec_open(&rx, forged, (size_t)ln[1], &h, out) == NAVLINK_SEC_ERR_TAG);
+  assert(navlink_sec_open(&rx, fr[1], (size_t)ln[1], &h, out) == 13); /* the real one */
+
+  /* a jump of 17..63 keeps the map: the frame W-1 below the new top is taken once */
+  {
+    enum { W = NAVLINK_SEC_REPLAY_WINDOW };
+    static uint8_t qf[40][300];
+    int ql[40];
+    setup(&tx, &rx, NAVLINK_SEC_DIR_FC_TO_GCS);
+    for (int i = 0; i < 40; i++)
+      ql[i] = navlink_sec_seal(&tx, qf[i], 300, NAVLINK_SEC_IFLAG_ENCRYPTED, &H, PL);
+    assert(navlink_sec_open(&rx, qf[2], (size_t)ql[2], &h, out) == 13);
+    assert(navlink_sec_open(&rx, qf[30], (size_t)ql[30], &h, out) == 13); /* jump of 28 */
+    assert(navlink_sec_open(&rx, qf[30 - (W - 1)], (size_t)ql[30 - (W - 1)], &h, out) == 13);
+    assert(navlink_sec_open(&rx, qf[30 - (W - 1)], (size_t)ql[30 - (W - 1)], &h, out) ==
+           NAVLINK_SEC_ERR_COUNTER);
+    assert(navlink_sec_open(&rx, qf[30 - W], (size_t)ql[30 - W], &h, out) ==
+           NAVLINK_SEC_ERR_COUNTER);
+  }
+  /* GCS->FC (commands) is strict: a held-back frame is refused once a later one
+   * is taken, so a command cannot be reordered past another */
+  {
+    uint8_t cf[3][300];
+    int cl[3];
+    setup(&tx, &rx, NAVLINK_SEC_DIR_GCS_TO_FC);
+    assert(rx.window == NAVLINK_SEC_REPLAY_WINDOW_CMD);
+    for (int i = 0; i < 3; i++)
+      cl[i] = navlink_sec_seal(&tx, cf[i], 300, NAVLINK_SEC_IFLAG_ENCRYPTED, &H, PL);
+    assert(navlink_sec_open(&rx, cf[0], (size_t)cl[0], &h, out) == 13);
+    assert(navlink_sec_open(&rx, cf[2], (size_t)cl[2], &h, out) == 13);
+    assert(navlink_sec_open(&rx, cf[1], (size_t)cl[1], &h, out) ==
+           NAVLINK_SEC_ERR_COUNTER);
+  }
 
   /* a forged huge counter with a bad tag does not move the receiver, so the
    * next real frame still opens */
