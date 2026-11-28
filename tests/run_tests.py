@@ -175,6 +175,21 @@ def main():
         sys.stderr.write(r.stderr)
         ok = False
 
+    # Security layer Python mirrors. Their absence here once let this script print
+    # PASS while test_sec.py failed; every test_*.py not run above is run now, so a
+    # new one cannot be skipped by forgetting to list it.
+    ran = {"test_codec.py", "test_xfer_loopback.py", "test_fs_nav_loopback.py"}
+    for name in sorted(os.listdir(HERE)):
+        if not (name.startswith("test_") and name.endswith(".py")) or name in ran:
+            continue
+        step(f"8. {name}")
+        r = run([sys.executable, os.path.join(HERE, name)],
+                capture_output=True, text=True)
+        sys.stdout.write(r.stdout)
+        if r.returncode != 0:
+            sys.stderr.write(r.stderr)
+            ok = False
+
     step("RESULT")
     print("PASS" if ok else "FAIL")
     sys.exit(0 if ok else 1)
