@@ -28,6 +28,7 @@ PENDING_S = 5.0
 GCS_RESYNC_S = 3.0
 HELLO_MIN_GAP_S = 1.0       # the HELLO budget refills one per this long
 HELLO_BURST = 4             # HELLOs accepted back to back
+RESERVE_BURST = 2           # the live peer's own HELLO budget (others cannot spend it)
 PENDING_SLOTS = 4           # unconfirmed sessions kept at once
 NONCE_RING = 8
 
@@ -115,6 +116,7 @@ class Fc:
             raise HsError("closed")
         self.k, self.uid, self.boot, self.hs = k, uid, boot, 0
         self.live = None
+        self.live_peer, self.reserve, self.reserve_at = 0, 0.0, 0.0
         self.slots = [None] * PENDING_SLOTS     # unconfirmed sessions, one per HELLO
         self.budget = HELLO_BURST * HELLO_MIN_GAP_S
         self.budget_at = None
@@ -129,6 +131,12 @@ class Fc:
     def tick(self, now):
         self.slots = [None if p is not None and now - p.since >= PENDING_S else p
                       for p in self.slots]
+
+    def _reserve(self, now):
+        cap = RESERVE_BURST * HELLO_MIN_GAP_S
+        self.reserve = min(cap, self.reserve + (now - self.reserve_at))
+        self.reserve_at = now
+        return self.reserve
 
     def _budget(self, now):
         cap = HELLO_BURST * HELLO_MIN_GAP_S
@@ -153,7 +161,8 @@ class Fc:
                     if now - p.since < HELLO_MIN_GAP_S:
                         raise HsError("rate")
                     slot = i
-        if self._budget(now) < HELLO_MIN_GAP_S:
+        use_reserve = bool(peer) and self.live is not None and peer == self.live_peer
+        if (self._reserve(now) if use_reserve else self._budget(now)) < HELLO_MIN_GAP_S:
             raise HsError("rate")
         if nonce in self.ring:
             raise HsError("repeat")
@@ -165,7 +174,10 @@ class Fc:
                     break
                 if slot is None or now - p.since > oldest:
                     slot, oldest = i, now - p.since
-        self.budget -= HELLO_MIN_GAP_S
+        if use_reserve:
+            self.reserve -= HELLO_MIN_GAP_S
+        else:
+            self.budget -= HELLO_MIN_GAP_S
         self.hs += 1
         self.ring = (self.ring + [nonce])[-NONCE_RING:]
         self.slots[slot] = _Pending(
@@ -191,6 +203,8 @@ class Fc:
                 err = err or e
             else:
                 self.live, self.slots[i] = p.session, None
+                self.live_peer = p.peer
+                self.reserve, self.reserve_at = RESERVE_BURST * HELLO_MIN_GAP_S, now
                 return r
         raise err or HsError("nosession")
 

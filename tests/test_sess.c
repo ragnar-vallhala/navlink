@@ -291,6 +291,41 @@ static void test_hello_from_address_filter(void) {
   assert(navlink_fc_open(&fc, 100, f, (size_t)l, &h, out) == 4);
 }
 
+/* The peer whose session is live has a reserve a rotating-id flood cannot spend. */
+static void test_live_peer_reserve(void) {
+  navlink_fc_t fc;
+  navlink_gcs_t g;
+  uint8_t n[16], hello[16], reply[52], f[300], out[255];
+  navlink_sec_hdr_t h;
+  assert(navlink_fc_init(&fc, K, UID, 7) == 0);
+  assert(navlink_gcs_init(&g, K) == 0);
+  nonce(n, 1);
+  assert(navlink_gcs_hello(&g, n, NULL, hello) == 16);
+  assert(navlink_fc_hello_peer(&fc, 0, 500, hello, reply) == 52);
+  assert(navlink_gcs_reply(&g, reply, 52, &INFO) == 0);
+  int l = navlink_gcs_seal(&g, NOW, f, sizeof f, E, &H, PL);
+  assert(l > 0);
+  assert(navlink_fc_open(&fc, 100, f, (size_t)l, &h, out) == 4); /* peer 500 is live */
+  /* a flood of fresh ids spends the shared budget */
+  uint32_t t = 200;
+  int ok = 0;
+  for (uint32_t p = 1000; p < 1030; p++) {
+    nonce(n, (uint8_t)p);
+    ok += navlink_fc_hello_peer(&fc, t, p, n, reply) == 52;
+  }
+  assert(ok >= 1 && ok <= (int)NAVLINK_SESS_HELLO_BURST);
+  nonce(n, 0xE0);
+  assert(navlink_fc_hello_peer(&fc, t, 2000, n, reply) == NAVLINK_SESS_ERR_RATE);
+  /* the live peer still gets in while the shared budget is empty; its own 1/s
+   * limit applies, and the flood did not touch its reserve */
+  nonce(n, 0xE1);
+  assert(navlink_fc_hello_peer(&fc, t, 500, n, reply) == 52);
+  nonce(n, 0xE2);
+  assert(navlink_fc_hello_peer(&fc, t + 500, 500, n, reply) == NAVLINK_SESS_ERR_RATE);
+  nonce(n, 0xE3);
+  assert(navlink_fc_hello_peer(&fc, t + 1000, 500, n, reply) == 52);
+}
+
 /* With a peer id, one sender holds one slot and has its own 1/s limit. */
 static void test_peer_slots(void) {
   navlink_fc_t fc;
@@ -540,6 +575,7 @@ int main(void) {
   test_flood_does_not_starve_connect();
   test_rotating_peer_flood_spends_shared_budget();
   test_hello_from_address_filter();
+  test_live_peer_reserve();
   test_peer_slots();
   test_ring_forgets_old();
   test_same_hello_different_keys();

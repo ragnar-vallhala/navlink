@@ -49,6 +49,10 @@
  * NAVLINK_SESS_HELLO_MIN_GAP_MS. A sender at the plain 1/s rate (the old fixed
  * gap) can no longer starve a real HELLO that lands in the same second. */
 #define NAVLINK_SESS_HELLO_BURST 4u
+/* A reserve for the peer whose session is live (the sender that last proved it
+ * holds the key, given with navlink_fc_hello_peer): its HELLOs are charged to this
+ * separate budget, so a flood from other senders cannot spend it. Same refill. */
+#define NAVLINK_SESS_RESERVE_BURST 2u
 /* Ground station: no vehicle frame has verified this long after switching to new
  * keys means the switch did not take (see navlink_gcs_needs_hello). */
 #define NAVLINK_SESS_GCS_RESYNC_MS 3000u
@@ -86,6 +90,9 @@ typedef struct {
   uint32_t budget_ms; /* HELLO budget, in ms of refill (1 HELLO = HELLO_MIN_GAP_MS) */
   uint32_t budget_at_ms;
   uint8_t budget_init;
+  uint32_t live_peer;     /* peer of the live session, 0 = none or unknown */
+  uint32_t reserve_ms;    /* that peer's own HELLO budget */
+  uint32_t reserve_at_ms;
   uint8_t nonces[NAVLINK_SESS_NONCE_RING][16];
   uint8_t nonce_count;
   uint8_t nonce_next;
@@ -131,8 +138,11 @@ int navlink_fc_hello(navlink_fc_t *fc, uint32_t now_ms,
 /* Same, for a transport that can tell senders apart (a UDP source address, hashed
  * to a non-zero id): a peer holds at most ONE pending slot (its next HELLO
  * replaces its own) and may send one HELLO per second. The HELLO budget is still
- * ONE budget for all senders: a flooder that keeps changing its id (a rotating
- * source port) can spend it and delay a real HELLO (ERR_RATE until it refills).
+ * ONE budget for all other senders: a flooder that keeps changing its id (a
+ * rotating source port) can spend it and delay a HELLO from a new address (ERR_RATE
+ * until it refills). The peer whose session is live has a reserve of its own
+ * (NAVLINK_SESS_RESERVE_BURST) that those senders cannot spend; a flooder that
+ * spoofs that peer's id can.
  * peer 0 is "unknown" and behaves as navlink_fc_hello(). */
 int navlink_fc_hello_peer(navlink_fc_t *fc, uint32_t now_ms, uint32_t peer,
                           const uint8_t gcs_nonce[16], uint8_t *reply);

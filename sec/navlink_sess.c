@@ -105,6 +105,15 @@ void navlink_fc_tick(navlink_fc_t *fc, uint32_t now_ms) {
       drop(&fc->pending[i].s);
 }
 
+/* The live peer's reserve as it stands at now_ms (refilled, capped). */
+static uint32_t reserve_now(navlink_fc_t *fc, uint32_t now_ms) {
+  const uint32_t cap = NAVLINK_SESS_RESERVE_BURST * NAVLINK_SESS_HELLO_MIN_GAP_MS;
+  const uint32_t add = (uint32_t)(now_ms - fc->reserve_at_ms);
+  fc->reserve_ms = (add >= cap - fc->reserve_ms) ? cap : fc->reserve_ms + add;
+  fc->reserve_at_ms = now_ms;
+  return fc->reserve_ms;
+}
+
 /* The HELLO budget as it stands at now_ms (refilled, capped), not yet charged. */
 static uint32_t budget_now(navlink_fc_t *fc, uint32_t now_ms) {
   const uint32_t cap = NAVLINK_SESS_HELLO_BURST * NAVLINK_SESS_HELLO_MIN_GAP_MS;
@@ -160,7 +169,9 @@ static int fc_hello(navlink_fc_t *fc, uint32_t now_ms, uint32_t peer,
           return NAVLINK_SESS_ERR_RATE; /* this sender, inside its own 1/s */
         slot = i;
       }
-  if (budget_now(fc, now_ms) < NAVLINK_SESS_HELLO_MIN_GAP_MS)
+  const int use_reserve = peer != 0u && fc->live.valid && peer == fc->live_peer;
+  if ((use_reserve ? reserve_now(fc, now_ms) : budget_now(fc, now_ms)) <
+      NAVLINK_SESS_HELLO_MIN_GAP_MS)
     return NAVLINK_SESS_ERR_RATE;
   for (unsigned i = 0; i < fc->nonce_count; ++i)
     if (memcmp(fc->nonces[i], gcs_nonce, 16) == 0)
@@ -180,7 +191,10 @@ static int fc_hello(navlink_fc_t *fc, uint32_t now_ms, uint32_t peer,
     }
   }
 
-  fc->budget_ms -= NAVLINK_SESS_HELLO_MIN_GAP_MS;
+  if (use_reserve)
+    fc->reserve_ms -= NAVLINK_SESS_HELLO_MIN_GAP_MS;
+  else
+    fc->budget_ms -= NAVLINK_SESS_HELLO_MIN_GAP_MS;
   fc->hs_ctr++;
   memcpy(fc->nonces[fc->nonce_next], gcs_nonce, 16);
   fc->nonce_next = (uint8_t)((fc->nonce_next + 1u) % NAVLINK_SESS_NONCE_RING);
@@ -231,6 +245,9 @@ int navlink_fc_open(navlink_fc_t *fc, uint32_t now_ms, const uint8_t *frame,
        * (other senders' HELLOs) stay until they are confirmed or expire */
       drop(&fc->live);
       fc->live = fc->pending[i].s;
+      fc->live_peer = fc->pending[i].peer;
+      fc->reserve_ms = NAVLINK_SESS_RESERVE_BURST * NAVLINK_SESS_HELLO_MIN_GAP_MS;
+      fc->reserve_at_ms = now_ms;
       drop(&fc->pending[i].s);
       return p;
     }

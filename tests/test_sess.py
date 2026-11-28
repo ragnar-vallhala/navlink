@@ -137,6 +137,25 @@ def test_hello_from_address_filter():
     assert fc.open(0.1, g.seal(0.0, 1, 9, 9, 7, PL))[1] == PL
 
 
+def test_live_peer_reserve():
+    """A flood of fresh ids spends the shared budget; the live peer still gets in."""
+    fc, g = hs.Fc(k, uid, 7), hs.Gcs(k)
+    g.take_reply(fc.hello(0.0, g.hello(nonce(1)), peer=500))
+    assert fc.open(0.1, g.seal(0.0, 1, 1, 1, 7, PL))[1] == PL
+    ok = 0
+    for p in range(1000, 1030):
+        try:
+            fc.hello(0.2, nonce(p & 0xFF), peer=p)
+            ok += 1
+        except hs.HsError:
+            pass
+    assert 1 <= ok <= hs.HELLO_BURST
+    err(lambda: fc.hello(0.2, nonce(0xE0), peer=2000), "rate")
+    fc.hello(0.2, nonce(0xE1), peer=500)                    # its own reserve
+    err(lambda: fc.hello(0.7, nonce(0xE2), peer=500), "rate")   # its own 1/s
+    fc.hello(1.2, nonce(0xE3), peer=500)
+
+
 def test_peer_slots():
     fc = hs.Fc(k, uid, 7)
     fc.hello(0.0, nonce(1), peer=77)
