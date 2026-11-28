@@ -103,10 +103,10 @@ class Gcs:
 
 
 class _Pending:
-    __slots__ = ("session", "since", "peer")
+    __slots__ = ("session", "since", "peer", "addr")
 
-    def __init__(self, session, now, peer):
-        self.session, self.since, self.peer = session, now, peer
+    def __init__(self, session, now, peer, addr=None):
+        self.session, self.since, self.peer, self.addr = session, now, peer, addr
 
 
 class Fc:
@@ -137,10 +137,11 @@ class Fc:
         self.budget_at = now
         return self.budget
 
-    def hello(self, now, nonce, peer=0):
-        """peer: the transport's id of the sender (non-zero), or 0 for unknown. A
-        known peer holds one slot and may send one HELLO per second; the budget itself is
-        shared by all senders."""
+    def hello(self, now, nonce, peer=0, addr=None):
+        """peer: the transport's id of the sender (non-zero), or 0 for unknown. A known
+        peer holds one slot and may send one HELLO per second; the budget itself is
+        shared by all senders. addr: (sysid, compid) of the HELLO frame, or None; with
+        it the pending session is tried only for frames from that address."""
         if self.closed or self.hs == 0xFFFFFFFF:
             self.closed = True
             raise HsError("closed")
@@ -168,7 +169,7 @@ class Fc:
         self.hs += 1
         self.ring = (self.ring + [nonce])[-NONCE_RING:]
         self.slots[slot] = _Pending(
-            _session(self.k, True, nonce, self.boot, self.hs, self.uid), now, peer)
+            _session(self.k, True, nonce, self.boot, self.hs, self.uid), now, peer, addr)
         return make_reply(self.k, nonce, self.boot, self.hs, self.uid)
 
     def open(self, now, frame):
@@ -181,6 +182,8 @@ class Fc:
                 err = e
         for i, p in enumerate(self.slots):
             if p is None:
+                continue
+            if p.addr is not None and len(frame) > 6 and (frame[5], frame[6]) != p.addr:
                 continue
             try:
                 r = p.session[1].open(frame)

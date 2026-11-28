@@ -124,8 +124,24 @@ int navlink_fc_hello(navlink_fc_t *fc, uint32_t now_ms,
   return navlink_fc_hello_peer(fc, now_ms, 0u, gcs_nonce, reply);
 }
 
+static int fc_hello(navlink_fc_t *fc, uint32_t now_ms, uint32_t peer,
+                    int has_addr, uint8_t sysid, uint8_t compid,
+                    const uint8_t gcs_nonce[16], uint8_t *reply);
+
 int navlink_fc_hello_peer(navlink_fc_t *fc, uint32_t now_ms, uint32_t peer,
                           const uint8_t gcs_nonce[16], uint8_t *reply) {
+  return fc_hello(fc, now_ms, peer, 0, 0, 0, gcs_nonce, reply);
+}
+
+int navlink_fc_hello_from(navlink_fc_t *fc, uint32_t now_ms, uint32_t peer,
+                          uint8_t sysid, uint8_t compid,
+                          const uint8_t gcs_nonce[16], uint8_t *reply) {
+  return fc_hello(fc, now_ms, peer, 1, sysid, compid, gcs_nonce, reply);
+}
+
+static int fc_hello(navlink_fc_t *fc, uint32_t now_ms, uint32_t peer,
+                    int has_addr, uint8_t sysid, uint8_t compid,
+                    const uint8_t gcs_nonce[16], uint8_t *reply) {
   if (fc == NULL || gcs_nonce == NULL || reply == NULL)
     return NAVLINK_SEC_ERR_ARG;
   if (fc->closed || fc->hs_ctr == 0xFFFFFFFFu) {
@@ -176,6 +192,9 @@ int navlink_fc_hello_peer(navlink_fc_t *fc, uint32_t now_ms, uint32_t peer,
   make_session(&pd->s, 1, fc->k, gcs_nonce, fc->boot_ctr, fc->hs_ctr, fc->uid);
   pd->since_ms = now_ms;
   pd->peer = peer;
+  pd->has_addr = (uint8_t)(has_addr != 0);
+  pd->sysid = sysid;
+  pd->compid = compid;
 
   memcpy(reply, gcs_nonce, 16);
   put_le32(reply + 16, fc->boot_ctr);
@@ -199,6 +218,11 @@ int navlink_fc_open(navlink_fc_t *fc, uint32_t now_ms, const uint8_t *frame,
   /* Each pending session gets a try; a frame verifies under at most one. */
   for (unsigned i = 0; i < NAVLINK_SESS_PENDING_SLOTS; ++i) {
     if (!fc->pending[i].s.valid)
+      continue;
+    /* frame[5], frame[6] are the sysid and compid in the secured header (the
+     * check is only a filter: the tag still has to verify) */
+    if (fc->pending[i].has_addr && len > 6u &&
+        (frame[5] != fc->pending[i].sysid || frame[6] != fc->pending[i].compid))
       continue;
     const int p =
         navlink_sec_open(&fc->pending[i].s.rx, frame, len, hdr, payload_out);

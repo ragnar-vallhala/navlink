@@ -71,6 +71,8 @@ typedef struct {
   navlink_session_t s;
   uint32_t since_ms;
   uint32_t peer;
+  uint8_t has_addr; /* sysid/compid below were given with the HELLO */
+  uint8_t sysid, compid;
 } navlink_pending_t;
 
 typedef struct {
@@ -133,6 +135,18 @@ int navlink_fc_hello(navlink_fc_t *fc, uint32_t now_ms,
  * source port) can spend it and delay a real HELLO (ERR_RATE until it refills).
  * peer 0 is "unknown" and behaves as navlink_fc_hello(). */
 int navlink_fc_hello_peer(navlink_fc_t *fc, uint32_t now_ms, uint32_t peer,
+                          const uint8_t gcs_nonce[16], uint8_t *reply);
+
+/* Same, and also records the (sysid, compid) of the HELLO frame's header. In
+ * navlink_fc_open() a pending session recorded this way is tried only for frames
+ * from the same (sysid, compid), so a keyless sender holding every slot costs
+ * the real ground station's frames no extra AEAD attempts. Use it only when the
+ * ground station sends its secured frames with the same (sysid, compid) as its
+ * HELLO; a pending session recorded this way never opens a frame from another
+ * address. navlink_fc_hello() and navlink_fc_hello_peer() record none and are
+ * tried for every frame, as before. */
+int navlink_fc_hello_from(navlink_fc_t *fc, uint32_t now_ms, uint32_t peer,
+                          uint8_t sysid, uint8_t compid,
                           const uint8_t gcs_nonce[16], uint8_t *reply);
 
 /* Open a frame from the ground station: live first, then pending (promoting it
