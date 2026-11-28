@@ -26,7 +26,9 @@ HELLO_LEN = 16
 REPLY_LEN = 52
 PENDING_S = 5.0
 GCS_RESYNC_S = 3.0
-HELLO_MIN_GAP_S = 1.0
+HELLO_MIN_GAP_S = 1.0       # the HELLO budget refills one per this long
+HELLO_BURST = 4             # HELLOs accepted back to back
+PENDING_SLOTS = 4           # unconfirmed sessions kept at once
 NONCE_RING = 8
 
 
@@ -100,34 +102,73 @@ class Gcs:
                 and now - self.switched_at >= GCS_RESYNC_S)
 
 
+class _Pending:
+    __slots__ = ("session", "since", "peer")
+
+    def __init__(self, session, now, peer):
+        self.session, self.since, self.peer = session, now, peer
+
+
 class Fc:
     def __init__(self, k, uid, boot):
         if boot in (0, 0xFFFFFFFF):
             raise HsError("closed")
         self.k, self.uid, self.boot, self.hs = k, uid, boot, 0
-        self.live = self.pending = None
-        self.pending_t = 0.0
-        self.last_hello = None
+        self.live = None
+        self.slots = [None] * PENDING_SLOTS     # unconfirmed sessions, one per HELLO
+        self.budget = HELLO_BURST * HELLO_MIN_GAP_S
+        self.budget_at = None
         self.ring = []
         self.closed = False
 
-    def tick(self, now):
-        if self.pending and now - self.pending_t >= PENDING_S:
-            self.pending = None
+    @property
+    def pending(self):
+        """The unconfirmed sessions (a list, empty when there are none)."""
+        return [p for p in self.slots if p is not None]
 
-    def hello(self, now, nonce):
+    def tick(self, now):
+        self.slots = [None if p is not None and now - p.since >= PENDING_S else p
+                      for p in self.slots]
+
+    def _budget(self, now):
+        cap = HELLO_BURST * HELLO_MIN_GAP_S
+        if self.budget_at is not None:
+            self.budget = min(cap, self.budget + (now - self.budget_at))
+        self.budget_at = now
+        return self.budget
+
+    def hello(self, now, nonce, peer=0):
+        """peer: the transport's id of the sender (non-zero), or 0 for unknown. A
+        known peer holds one slot and may send one HELLO per second; the budget itself is
+        shared by all senders."""
         if self.closed or self.hs == 0xFFFFFFFF:
             self.closed = True
             raise HsError("closed")
-        if self.last_hello is not None and now - self.last_hello < HELLO_MIN_GAP_S:
+        self.tick(now)
+        slot = None
+        if peer:
+            for i, p in enumerate(self.slots):
+                if p is not None and p.peer == peer:
+                    if now - p.since < HELLO_MIN_GAP_S:
+                        raise HsError("rate")
+                    slot = i
+        if self._budget(now) < HELLO_MIN_GAP_S:
             raise HsError("rate")
         if nonce in self.ring:
             raise HsError("repeat")
+        if slot is None:                          # a free slot, else the oldest
+            oldest = None
+            for i, p in enumerate(self.slots):
+                if p is None:
+                    slot = i
+                    break
+                if slot is None or now - p.since > oldest:
+                    slot, oldest = i, now - p.since
+        self.budget -= HELLO_MIN_GAP_S
         self.hs += 1
-        self.last_hello = now
         self.ring = (self.ring + [nonce])[-NONCE_RING:]
-        self.pending = _session(self.k, True, nonce, self.boot, self.hs, self.uid)
-        self.pending_t = now
+        self.slots[slot] = _Pending(
+            _session(self.k, True, nonce, self.boot, self.hs, self.uid), now, peer)
         return make_reply(self.k, nonce, self.boot, self.hs, self.uid)
 
     def open(self, now, frame):
@@ -138,13 +179,15 @@ class Fc:
                 return self.live[1].open(frame)
             except sec.SecError as e:
                 err = e
-        if self.pending:
+        for i, p in enumerate(self.slots):
+            if p is None:
+                continue
             try:
-                r = self.pending[1].open(frame)
+                r = p.session[1].open(frame)
             except sec.SecError as e:
                 err = err or e
             else:
-                self.live, self.pending = self.pending, None
+                self.live, self.slots[i] = p.session, None
                 return r
         raise err or HsError("nosession")
 

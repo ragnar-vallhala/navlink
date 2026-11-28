@@ -1032,18 +1032,29 @@ The ground station drops its old keys when it sends its first frame under the ne
 authenticated (the vehicle cannot yet know who sent it), so accepting one MUST NOT
 replace or disturb the session in use: otherwise anyone, with no key, could send a
 HELLO and cut the real ground station off in flight. The vehicle keeps at most one
-**live** session and at most one **pending** session. A HELLO that passes the rate
-limit fills the pending slot (a later HELLO replaces an earlier pending one) and
-the reply is sent; the live session is untouched and keeps working. The pending
+**live** session and a small fixed number of **pending** sessions (4 in the
+reference code). A HELLO that passes the rate limit fills a free pending slot, or
+replaces the oldest when all are full, and the reply is sent; the live session is
+untouched and keeps working. Several pending slots exist so that a keyless
+sender's HELLO cannot replace the real ground station's before its first secured
+frame arrives. The rate limit is a budget of 4 HELLOs that refills at one per
+second (not a fixed 1 s gap), so a sender at 1 HELLO/s cannot use up the second
+the real HELLO lands in. A transport that can tell senders apart passes a peer
+id: a peer then holds one slot (its next HELLO replaces its own) and may send one
+HELLO per second. The budget is shared by all senders, so a flooder that changes
+its id can still spend it; this bounds the work, not who gets served. The first frame
+that verifies under any pending session promotes that session; the others wait
+for their own first frame or the timeout. The pending
 session becomes live, and the old live session is dropped, **only when the first
 secured GCS→FC frame verifies under the pending session's keys**: that frame
 proves the sender holds K. A pending session that is not confirmed within a
-timeout (5 s recommended) is discarded. The rate limit applies to filling the
-pending slot, so it cannot starve a legitimate reconnect: the live session is
-never affected by it, and a genuine HELLO is confirmed within one round trip. An
-attacker who floods HELLOs can at worst delay a reconnect while the old session
-is already gone (for example after a ground-station restart); it cannot cut a live
-link. That residual delay is a known limit. The ground station switches its own
+timeout (5 s recommended) is discarded. The live session is never
+affected by HELLOs, and a genuine HELLO is confirmed within one round trip. An
+attacker who sends HELLOs faster than the budget refills (more than about one per
+second sustained) can still keep the budget empty and so delay a reconnect while
+the old session is already gone (for example after a ground-station restart); it
+cannot cut a live link. With no way to tell senders apart (a serial link) that
+residual delay is a known limit; it is the same as radio jamming. The ground station switches its own
 side to the new keys when it sends its first frame under them. When there is no
 live session (first connection, or the old one has been dropped) the pending
 session is promoted by the same rule.

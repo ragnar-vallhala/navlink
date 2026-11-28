@@ -25,11 +25,11 @@
  * cannot do that for it. A failure here changes nothing but a return value
  * (spec 11.10).
  *
- * Vehicle: one live session, one pending session. navlink_fc_hello() fills the
- * pending slot and never touches the live one. navlink_fc_open() promotes the
- * pending session, and drops the old live one, only when a frame verifies under
- * the pending keys. A pending session not confirmed within
- * NAVLINK_SESS_PENDING_MS is discarded. */
+ * Vehicle: one live session, NAVLINK_SESS_PENDING_SLOTS pending sessions.
+ * navlink_fc_hello() fills a pending slot and never touches the live one.
+ * navlink_fc_open() promotes a pending session, and drops the old live one, only
+ * when a frame verifies under that session's keys. A pending session not
+ * confirmed within NAVLINK_SESS_PENDING_MS is discarded. */
 #ifndef NAVLINK_SESS_H
 #define NAVLINK_SESS_H
 
@@ -42,6 +42,13 @@
 #define NAVLINK_SESS_PENDING_MS 5000u
 #define NAVLINK_SESS_HELLO_MIN_GAP_MS 1000u
 #define NAVLINK_SESS_NONCE_RING 8
+/* Unconfirmed sessions kept at once, so a keyless sender's HELLO cannot replace the
+ * real ground station's before its first secured frame arrives. */
+#define NAVLINK_SESS_PENDING_SLOTS 4
+/* HELLOs accepted back to back; the budget refills at one per
+ * NAVLINK_SESS_HELLO_MIN_GAP_MS. A sender at the plain 1/s rate (the old fixed
+ * gap) can no longer starve a real HELLO that lands in the same second. */
+#define NAVLINK_SESS_HELLO_BURST 4u
 /* Ground station: no vehicle frame has verified this long after switching to new
  * keys means the switch did not take (see navlink_gcs_needs_hello). */
 #define NAVLINK_SESS_GCS_RESYNC_MS 3000u
@@ -59,6 +66,13 @@ typedef struct {
   uint8_t valid;
 } navlink_session_t;
 
+/* One unconfirmed session. `peer` is the transport's id of the sender (0 = unknown). */
+typedef struct {
+  navlink_session_t s;
+  uint32_t since_ms;
+  uint32_t peer;
+} navlink_pending_t;
+
 typedef struct {
   uint8_t k[NAVLINK_SEC_KEY_LEN];
   uint8_t uid[12];
@@ -66,10 +80,10 @@ typedef struct {
   uint32_t hs_ctr; /* RAM; +1 per accepted HELLO */
   uint8_t closed;
   navlink_session_t live;
-  navlink_session_t pending;
-  uint32_t pending_since_ms;
-  uint32_t last_hello_ms;
-  uint8_t have_hello;
+  navlink_pending_t pending[NAVLINK_SESS_PENDING_SLOTS];
+  uint32_t budget_ms; /* HELLO budget, in ms of refill (1 HELLO = HELLO_MIN_GAP_MS) */
+  uint32_t budget_at_ms;
+  uint8_t budget_init;
   uint8_t nonces[NAVLINK_SESS_NONCE_RING][16];
   uint8_t nonce_count;
   uint8_t nonce_next;
@@ -103,12 +117,23 @@ int navlink_fc_init(navlink_fc_t *fc, const uint8_t k[32], const uint8_t uid[12]
                     uint32_t boot_ctr);
 void navlink_fc_wipe(navlink_fc_t *fc);
 
-/* Handle a HELLO. On success writes NAVLINK_HS_REPLY_LEN bytes to reply, fills
- * the pending slot (replacing an earlier pending one) and returns the length.
- * Refused, with nothing changed: closed, inside the rate limit, repeated nonce,
+/* Handle a HELLO. On success writes NAVLINK_HS_REPLY_LEN bytes to reply, fills a
+ * pending slot and returns the length. A HELLO takes a free slot, else replaces
+ * the oldest pending one, so up to NAVLINK_SESS_PENDING_SLOTS HELLOs can wait for
+ * their first frame at once. Refused, with nothing changed: closed, no HELLO
+ * budget left (NAVLINK_SESS_HELLO_BURST, refilling 1 per second), repeated nonce,
  * hs_ctr exhausted. */
 int navlink_fc_hello(navlink_fc_t *fc, uint32_t now_ms,
                      const uint8_t gcs_nonce[16], uint8_t *reply);
+
+/* Same, for a transport that can tell senders apart (a UDP source address, hashed
+ * to a non-zero id): a peer holds at most ONE pending slot (its next HELLO
+ * replaces its own) and may send one HELLO per second. The HELLO budget is still
+ * ONE budget for all senders: a flooder that keeps changing its id (a rotating
+ * source port) can spend it and delay a real HELLO (ERR_RATE until it refills).
+ * peer 0 is "unknown" and behaves as navlink_fc_hello(). */
+int navlink_fc_hello_peer(navlink_fc_t *fc, uint32_t now_ms, uint32_t peer,
+                          const uint8_t gcs_nonce[16], uint8_t *reply);
 
 /* Open a frame from the ground station: live first, then pending (promoting it
  * on success). Returns the payload length or a negative code. */
