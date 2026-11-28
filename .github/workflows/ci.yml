@@ -19,6 +19,8 @@ on:
   push:
     branches: [main, stable]
   pull_request:
+    # edited: a change to the description re-runs the tracker-number gate
+    types: [opened, synchronize, reopened, edited]
 
 jobs:
   suite:
@@ -87,4 +89,5 @@ jobs:
       - name: No todo/room/stack/ashu numbers in added lines or commit messages
         env:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: scripts/check-no-tracker-refs.sh "$PR_BASE" HEAD
