@@ -258,6 +258,39 @@ static void test_rotating_peer_flood_spends_shared_budget(void) {
   assert(navlink_fc_hello_peer(&fc, 1030, 5, n, reply) == 52); /* a second later */
 }
 
+/* A pending session recorded with (sysid, compid) opens only frames from that
+ * address; one recorded without keeps trying every frame. */
+static void test_hello_from_address_filter(void) {
+  navlink_fc_t fc;
+  navlink_gcs_t g;
+  uint8_t n[16], hello[16], reply[52], f[300], out[255];
+  navlink_sec_hdr_t h;
+  const navlink_sec_hdr_t other = {1, 9, 9, 7, 4}; /* same key, another address */
+  assert(navlink_fc_init(&fc, K, UID, 7) == 0);
+  assert(navlink_gcs_init(&g, K) == 0);
+  nonce(n, 1);
+  assert(navlink_gcs_hello(&g, n, NULL, hello) == 16);
+  assert(navlink_fc_hello_from(&fc, 0, 0, 1, 1, hello, reply) == 52);
+  assert(navlink_gcs_reply(&g, reply, 52, &INFO) == 0);
+  int l = navlink_gcs_seal(&g, NOW, f, sizeof f, E, &other, PL);
+  assert(l > 0);
+  /* the key is right but the address is not the recorded one: not tried */
+  assert(navlink_fc_open(&fc, 100, f, (size_t)l, &h, out) ==
+         NAVLINK_SESS_ERR_NOSESSION);
+  l = navlink_gcs_seal(&g, NOW, f, sizeof f, E, &H, PL);
+  assert(l > 0);
+  assert(navlink_fc_open(&fc, 200, f, (size_t)l, &h, out) == 4); /* recorded address */
+
+  /* without an address the old behaviour: any address that verifies is taken */
+  assert(navlink_fc_init(&fc, K, UID, 8) == 0);
+  nonce(n, 2);
+  assert(navlink_gcs_hello(&g, n, NULL, hello) == 16);
+  assert(navlink_fc_hello(&fc, 0, hello, reply) == 52);
+  assert(navlink_gcs_reply(&g, reply, 52, &INFO) == 0);
+  l = navlink_gcs_seal(&g, NOW, f, sizeof f, E, &other, PL);
+  assert(navlink_fc_open(&fc, 100, f, (size_t)l, &h, out) == 4);
+}
+
 /* With a peer id, one sender holds one slot and has its own 1/s limit. */
 static void test_peer_slots(void) {
   navlink_fc_t fc;
@@ -506,6 +539,7 @@ int main(void) {
   test_rate_and_repeat();
   test_flood_does_not_starve_connect();
   test_rotating_peer_flood_spends_shared_budget();
+  test_hello_from_address_filter();
   test_peer_slots();
   test_ring_forgets_old();
   test_same_hello_different_keys();

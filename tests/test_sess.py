@@ -125,6 +125,18 @@ def test_flood_does_not_starve_connect():
     assert fc.open(3.7, g.seal(NOW, 1, 1, 1, 7, PL))[1] == PL and fc.live
 
 
+def test_hello_from_address_filter():
+    """A pending session recorded with (sysid, compid) opens only frames from it."""
+    fc, g = hs.Fc(k, uid, 7), hs.Gcs(k)
+    g.take_reply(fc.hello(0.0, g.hello(nonce(1)), addr=(1, 1)))
+    err(lambda: fc.open(0.1, g.seal(0.0, 1, 9, 9, 7, PL)), "nosession")
+    assert fc.open(0.2, g.seal(0.0, 1, 1, 1, 7, PL))[1] == PL
+    # without an address, any address that verifies is taken
+    fc, g = hs.Fc(k, uid, 8), hs.Gcs(k)
+    g.take_reply(fc.hello(0.0, g.hello(nonce(2))))
+    assert fc.open(0.1, g.seal(0.0, 1, 9, 9, 7, PL))[1] == PL
+
+
 def test_peer_slots():
     fc = hs.Fc(k, uid, 7)
     fc.hello(0.0, nonce(1), peer=77)
